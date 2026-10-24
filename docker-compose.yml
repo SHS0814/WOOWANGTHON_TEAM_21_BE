@@ -1,4 +1,3 @@
-# 초안. DB는 아직 앱에서 쓰지 않는다 (엔드포인트 구현은 API 계약서 승인 뒤)
 services:
   api:
     build: .
@@ -8,7 +7,8 @@ services:
     volumes:
       - ./data/photos:/data/photos
     depends_on:
-      - db
+      db:
+        condition: service_healthy
     restart: always
 
   db:
@@ -19,6 +19,11 @@ services:
       POSTGRES_DB: woowang
     volumes:
       - ./data/postgres:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U woowang -d woowang"]
+      interval: 2s
+      timeout: 3s
+      retries: 30
     restart: always
 
   # (선택) 로컬 판독 모델. GPU 사용 시 NVIDIA Container Toolkit 필요

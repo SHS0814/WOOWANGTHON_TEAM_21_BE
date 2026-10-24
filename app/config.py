@@ -15,6 +15,19 @@ class Settings(BaseSettings):
     photo_dir: str = "./data/photos"
     # 사진 서명 URL용 HMAC 비밀값. 운영에서는 반드시 바꾼다
     photo_url_secret: str = "change-me"
+    photo_url_ttl_s: int = 300
+    photo_max_bytes: int = 10 * 1024 * 1024
+    # 앱에 내려주는 URL의 앞부분 (예: https://woowang.example.com). 비우면 요청 주소를 쓴다
+    public_base_url: str | None = None
+
+    # 시연 트리거 (R-010 10번). true 이고 가족이 is_demo 일 때만 POST /dev/dose-events 동작
+    demo_mode: bool = False
+
+    elder_code_ttl_min: int = 10
+    guardian_code_ttl_h: int = 24
+    pair_fail_limit: int = 5
+    pair_fail_window_min: int = 10
+    consent_text_version: str = "v1"
 
     # 판독기 선택 (backend.md 8장). "mock" | "claude" | "ollama"
     reader_layout: str = "mock"
@@ -27,16 +40,26 @@ class Settings(BaseSettings):
     ollama_model: str = "qwen2.5vl:7b"
 
     reader_timeout_s: float = 60.0
+    # "정상" 판정 신뢰도 기준. 임시값, 정확도 검증 후 다시 정한다 (backend.md 7.1)
+    normal_confidence: float = 0.9
     daily_reading_limit: int = 30
 
     # 재질문·인계 시간값. 앱은 이 값을 GET /me 로 내려받는다 (R-007 C5)
     reask_offsets_min: list[int] = Field(default_factory=lambda: [10, 20])
     no_response_handoff_min: int = 30
     retake_wait_min: int = 15
+    # 리필 안내 기준 = 하루 복용 횟수 × 이 값 (R-010 5번)
+    refill_threshold_days: int = 2
+    # 복약 시각 전 사진은 이 시간 전부터만 받음 (R-010 13번)
+    early_photo_window_min: int = 60
+
+    @property
+    def ai_external_transfer(self) -> bool:
+        return "claude" in (self.reader_layout.split(":")[0], self.reader_cells.split(":")[0])
 
     @property
     def reader_is_mock(self) -> bool:
-        return "mock" in (self.reader_layout, self.reader_cells)
+        return "mock" in (self.reader_layout.split(":")[0], self.reader_cells.split(":")[0])
 
 
 @lru_cache
