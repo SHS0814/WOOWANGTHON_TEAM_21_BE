@@ -25,6 +25,8 @@ cp .env.example .env
 | `PHOTO_URL_SECRET` | 긴 난수. 예: `python3 -c "import secrets; print(secrets.token_urlsafe(48))"` |
 | `POSTGRES_PASSWORD`, `DATABASE_URL` | 같은 비밀번호로 둘 다 바꾼다. `DATABASE_URL=postgresql+psycopg://woowang:<비밀번호>@db:5432/woowang` |
 | `DEMO_MODE` | 시연 영상·심사 기간에만 `true`. 시연 트리거와 데모 가족 생성이 열린다 |
+| `ENV` | 운영은 `prod` (기본 `dev`). `prod`에서는 `CORS_ORIGINS`에 `*`를 쓸 수 없다 |
+| `CORS_ORIGINS` | 웹으로 앱을 열 때만 필요. 웹 앱 주소를 쉼표로 (예: `https://app.woowang.example`). 기본은 개발용 localhost. 휴대폰 앱(Expo 네이티브)은 CORS와 무관하다 |
 | `EXPO_PUSH_ENABLED` | 보호자 푸시를 실제로 보낼 때 `true`. `EXPO_ACCESS_TOKEN`은 Expo 계정에서 푸시 보안을 켰을 때만 |
 | `READER_LAYOUT`, `READER_CELLS` | 기본 `mock`(앱에 "모의 판독" 표시). 모델이 정해지면 `claude` 등으로 바꾸고 `ANTHROPIC_API_KEY`를 채운다 |
 

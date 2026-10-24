@@ -10,7 +10,6 @@ from app.clock import clock
 from app.config import Settings
 from app.deps import Auth, auth_guardian, get_db, get_settings
 from app.errors import validation
-from app.services import dose as ds
 from app.services.summary import summaries, week_start
 from app.timeutil import kst_date
 
@@ -28,8 +27,6 @@ def get_summaries(
     settings: Settings = Depends(get_settings),
 ):
     now = clock.now()
-    ds.tick(db, settings, request.app.state.push, auth.family, now)
-    db.commit()
     today = kst_date(now)
     to = to or today
     if from_ is None:

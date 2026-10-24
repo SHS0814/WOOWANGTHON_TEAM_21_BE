@@ -1,7 +1,7 @@
 """복약 건, 사진 업로드, 시연 트리거 (api.md 3.17~3.19, 3.27)."""
 
 from datetime import date, datetime
-from typing import Annotated
+from typing import Annotated, Literal
 
 from fastapi import APIRouter, Depends, File, Form, Query, Request, UploadFile
 from pydantic import BaseModel
@@ -43,9 +43,8 @@ def today_events(
     db: Session = Depends(get_db),
     settings: Settings = Depends(get_settings),
 ):
+    # 상태 갱신은 1분 예약 작업이 한다. GET 은 읽기만 한다 (R-018)
     now = clock.now()
-    ds.tick(db, settings, request.app.state.push, auth.family, now)
-    db.commit()
     today = kst_date(now)
     events = _events_for(db, auth.family.id, today, today)
     url = base_url(request, settings)
@@ -84,9 +83,6 @@ def list_events(
         raise validation("from", "from 이 to 보다 늦음")
     if (to - from_).days >= 31:
         raise validation("to", "최대 31일")
-    now = clock.now()
-    ds.tick(db, settings, request.app.state.push, auth.family, now)
-    db.commit()
     url = base_url(request, settings)
     events = _events_for(db, auth.family.id, from_, to)
     return {
@@ -129,8 +125,9 @@ async def upload_dose_photo(
     if len(data) > settings.photo_max_bytes:
         raise ApiError(413, "photo_too_large", "사진이 너무 큼")
     now = clock.now()
-    ds.tick(db, settings, request.app.state.push, auth.family, now)
-    db.refresh(event)
+    # 이 건만 잠그고 시각·기한을 반영한다. 같은 건의 동시 업로드·예약 작업과 겹치지 않는다
+    event = ds.lock_event(db, event.id)
+    ds.advance_event(db, settings, request.app.state.push, auth.family, event, now)
     if event.state == "reading":
         raise ApiError(409, "reading_in_progress", "판독 중")
     if not ds.can_accept_photo(db, settings, event, now):
@@ -146,6 +143,7 @@ async def upload_dose_photo(
         dose_event_id=event.id,
         client_upload_id=client_upload_id,
     )
+    scenario = request.app.state.mock_scenarios.pop(auth.family.id, None)
     prev_state = event.state
     event.state = "reading"
     db.commit()
@@ -161,6 +159,7 @@ async def upload_dose_photo(
             load(settings, p),
             now,
             prev_state,
+            mock_scenario=scenario,
         )
     except Exception:
         db.rollback()
@@ -210,3 +209,29 @@ def simulate_dose_event(
     event.state = "asked"
     db.commit()
     return event_out(db, settings, base_url(request, settings), event, guardian=auth.is_guardian)
+
+
+class MockScenarioIn(BaseModel):
+    scenario: Literal["normal", "unclear", "unchanged", "double_suspected"] | None
+
+
+@router.post("/dev/mock-scenario")
+def set_mock_scenario(
+    body: MockScenarioIn,
+    request: Request,
+    auth: Auth = Depends(auth_any),
+    settings: Settings = Depends(get_settings),
+):
+    """QA용: 다음 복약 사진 1장의 모의 판독 결과를 정한다 (R-018).
+
+    DEMO_MODE, 데모 가족, 매일 판독기가 mock 일 때만. 그 밖에는 경로가 없는 것처럼 404.
+    """
+    reader = request.app.state.cells_reader
+    if not (settings.demo_mode and auth.family.is_demo and reader.provider == "mock"):
+        raise not_found()
+    scenarios = request.app.state.mock_scenarios
+    if body.scenario is None:
+        scenarios.pop(auth.family.id, None)
+    else:
+        scenarios[auth.family.id] = body.scenario
+    return {"scenario": body.scenario, "applies_to": "next_dose_photo", "is_mock": True}

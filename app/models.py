@@ -3,7 +3,7 @@
 import uuid
 from datetime import datetime
 
-from sqlalchemy import JSON, Boolean, ForeignKey, Integer, String, Text
+from sqlalchemy import JSON, Boolean, ForeignKey, Index, Integer, String, Text, text
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.clock import clock
@@ -195,3 +195,27 @@ class Handoff(Base):
         ForeignKey("devices.id"), nullable=True
     )
     verdict_at: Mapped[datetime | None] = mapped_column(UTCDateTime, nullable=True)
+
+
+# 같은 칸·같은 날의 복약 건은 하나 (동시 요청에서 중복 생성 방지)
+Index("uq_dose_event_slot_date", DoseEvent.slot_id, DoseEvent.date, unique=True)
+
+# 같은 복약 건에 같은 사유의 열린 인계는 하나만 (R-007 C2, R-018). 동시 요청 경합을 DB 에서 막는다
+_OPEN_BOUND = text("verdict IS NULL AND binds_event")
+_OPEN_SIDE_REFILL = text("verdict IS NULL AND NOT binds_event AND reason = 'refill_unconfirmed'")
+Index(
+    "uq_open_handoff_event_reason",
+    Handoff.dose_event_id,
+    Handoff.reason,
+    unique=True,
+    postgresql_where=_OPEN_BOUND,
+    sqlite_where=_OPEN_BOUND,
+)
+# 대상 칸과 무관한 리필 확인 요청(5.4)은 가족당 하나만 열려 있다
+Index(
+    "uq_open_side_refill_check",
+    Handoff.family_id,
+    unique=True,
+    postgresql_where=_OPEN_SIDE_REFILL,
+    sqlite_where=_OPEN_SIDE_REFILL,
+)

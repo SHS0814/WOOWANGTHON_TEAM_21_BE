@@ -203,8 +203,7 @@ def pair(
         )
     pc.used_at = now
     db.add(device)
-    db.commit()
-
+    db.flush()
     if device.role == "guardian":
         notify_guardians(
             db,
@@ -215,6 +214,7 @@ def pair(
             data={"type": "guardian_joined", "device_id": device.id},
             exclude_device_id=device.id,
         )
+    db.commit()
 
     return {
         "token": token,

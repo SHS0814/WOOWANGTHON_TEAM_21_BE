@@ -30,8 +30,6 @@ def list_handoffs(
     db: Session = Depends(get_db),
     settings: Settings = Depends(get_settings),
 ):
-    ds.tick(db, settings, request.app.state.push, auth.family, clock.now())
-    db.commit()
     q = select(Handoff).where(Handoff.family_id == auth.family.id)
     if status == "open":
         q = q.where(Handoff.verdict.is_(None))
@@ -75,7 +73,14 @@ def post_verdict(
     db: Session = Depends(get_db),
     settings: Settings = Depends(get_settings),
 ):
-    h = _get(db, auth, handoff_id)
+    _get(db, auth, handoff_id)
+    # 두 보호자가 동시에 판정하는 경우를 막는다
+    h = db.scalar(
+        select(Handoff)
+        .where(Handoff.id == handoff_id)
+        .with_for_update()
+        .execution_options(populate_existing=True)
+    )
     if h.verdict is not None:
         raise ApiError(
             409,

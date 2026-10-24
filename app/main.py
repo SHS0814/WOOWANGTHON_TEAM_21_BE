@@ -10,10 +10,11 @@ from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
 
 from fastapi import FastAPI
+from fastapi.middleware.cors import CORSMiddleware
 
 from app import __version__, jobs
 from app.config import Settings, get_settings
-from app.db import Base, make_engine, make_sessionmaker
+from app.db import ensure_schema, make_engine, make_sessionmaker
 from app.errors import install_error_handlers
 from app.push import ExpoPushSender, PushSender, RecordingPushSender
 from app.ratelimit import SlidingWindow
@@ -30,7 +31,7 @@ def create_app(
 ) -> FastAPI:
     settings = settings or get_settings()
     engine = make_engine(settings.database_url)
-    Base.metadata.create_all(engine)
+    ensure_schema(engine)
 
     @asynccontextmanager
     async def lifespan(app: FastAPI):
@@ -53,6 +54,8 @@ def create_app(
         )
     app.state.push = push
     app.state.summary_sent = set()
+    # family_id → 다음 복약 사진 1장의 모의 판독 시나리오 (QA, R-018)
+    app.state.mock_scenarios = {}
     app.state.layout_reader = layout_reader or build_reader(settings.reader_layout, settings)
     app.state.cells_reader = cells_reader or build_reader(settings.reader_cells, settings)
     app.state.limits = {
@@ -62,6 +65,14 @@ def create_app(
         ),
     }
     install_error_handlers(app)
+    app.add_middleware(
+        CORSMiddleware,
+        allow_origins=settings.cors_origin_list,
+        allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"],
+        allow_headers=["Authorization", "Content-Type"],
+        allow_credentials=False,  # 쿠키 없이 Bearer 토큰만 쓴다
+        max_age=600,
+    )
 
     @app.get("/health")
     def health() -> dict:
