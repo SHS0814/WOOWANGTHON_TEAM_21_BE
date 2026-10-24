@@ -7,6 +7,7 @@ from dataclasses import dataclass
 from datetime import datetime, timedelta
 
 from sqlalchemy import select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.config import Settings
@@ -63,9 +64,12 @@ def sync_events(db: Session, family_id: str, now: datetime) -> list[DoseEvent]:
             scheduled_at=at_kst(today, slot.dose_time),
             state="scheduled",
         )
-        db.add(event)
+        try:
+            with db.begin_nested():  # 다른 요청이 먼저 만들었으면 유니크 인덱스에 걸린다
+                db.add(event)
+        except IntegrityError:
+            continue
         created.append(event)
-    db.flush()
     return created
 
 
@@ -85,7 +89,11 @@ def create_handoff(
     binds_event: bool = True,
     send_push: bool = True,
     dose_event_id: str | None = None,
-) -> Handoff:
+) -> Handoff | None:
+    """인계를 만든다. 같은 원인의 열린 인계가 이미 있으면(동시 요청) 만들지 않고 None.
+
+    유니크 인덱스(models.py)가 중복을 막고, 푸시는 커밋 뒤에 보낸다 (R-007 C2, R-018).
+    """
     h = Handoff(
         family_id=family.id,
         dose_event_id=event.id if event else dose_event_id,
@@ -95,7 +103,11 @@ def create_handoff(
         binds_event=binds_event,
         pushed=send_push,
     )
-    db.add(h)
+    try:
+        with db.begin_nested():
+            db.add(h)
+    except IntegrityError:
+        return None
     if event is not None and binds_event:
         event.state = "handed_off"
         event.retake_deadline_at = None
@@ -132,34 +144,56 @@ def open_bound_handoff(db: Session, event_id: str) -> Handoff | None:
     )
 
 
+def lock_event(db: Session, event_id: str) -> DoseEvent | None:
+    """복약 건 행을 잠그고 다시 읽는다 (PostgreSQL FOR UPDATE, SQLite 는 쓰기 잠금으로 대신)."""
+    return db.scalar(
+        select(DoseEvent)
+        .where(DoseEvent.id == event_id)
+        .with_for_update()
+        .execution_options(populate_existing=True)
+    )
+
+
 def tick(db: Session, settings: Settings, push: PushSender, family: Family, now: datetime) -> None:
-    """복약 건 만들기, 시각이 된 건 열기, 기한 넘긴 건 인계 (backend.md 9장)."""
+    """복약 건 만들기, 시각이 된 건 열기, 기한 넘긴 건 인계 (backend.md 9장).
+
+    1분 예약 작업(app/jobs.py)만 부른다. 다른 요청이 잠근 건은 건너뛰고 다음 주기에 처리한다.
+    """
     sync_events(db, family.id, now)
     events = db.scalars(
-        select(DoseEvent).where(
+        select(DoseEvent)
+        .where(
             DoseEvent.family_id == family.id,
             DoseEvent.state.in_(("scheduled", "reading", *OPEN_STATES)),
         )
+        .with_for_update(skip_locked=True)
     ).all()
     for e in events:
-        if e.state == "reading":
-            # 판독 중 서버가 죽은 경우: 판독 제한 시간이 지나면 다시 물어보는 상태로 돌린다
-            last = db.scalar(
-                select(Photo.uploaded_at)
-                .where(Photo.dose_event_id == e.id)
-                .order_by(Photo.uploaded_at.desc())
-                .limit(1)
-            )
-            if last is None or now - last > timedelta(seconds=settings.reader_timeout_s * 2):
-                e.state = "asked"
-        if e.state == "scheduled" and e.scheduled_at <= now:
-            e.state = "asked"
-        if e.state == "asked" and now >= handoff_deadline(settings, e):
-            create_handoff(db, push, family, e, "no_response", now)
-        elif e.state in ("retake_requested", "reminded") and e.retake_deadline_at <= now:
-            reason = "unclear" if e.state == "retake_requested" else "unchanged"
-            create_handoff(db, push, family, e, reason, now)
+        advance_event(db, settings, push, family, e, now)
     db.flush()
+
+
+def advance_event(
+    db: Session, settings: Settings, push: PushSender, family: Family, e: DoseEvent, now: datetime
+) -> None:
+    """시각·기한에 따라 한 복약 건의 상태를 진행한다. 호출 전에 행을 잠근다."""
+    if e.state == "reading":
+        # 판독 중 서버가 죽은 경우: 판독 제한 시간이 지나면 다시 물어보는 상태로 돌린다
+        last = db.scalar(
+            select(Photo.uploaded_at)
+            .where(Photo.dose_event_id == e.id)
+            .order_by(Photo.uploaded_at.desc())
+            .limit(1)
+        )
+        if last is None or now - last > timedelta(seconds=settings.reader_timeout_s * 2):
+            e.state = "asked"
+    if e.state == "scheduled" and e.scheduled_at <= now:
+        e.state = "asked"
+    if e.state == "asked" and now >= handoff_deadline(settings, e):
+        create_handoff(db, push, family, e, "no_response", now)
+    elif e.state in ("retake_requested", "reminded") and e.retake_deadline_at <= now:
+        reason = "unclear" if e.state == "retake_requested" else "unchanged"
+        create_handoff(db, push, family, e, reason, now)
 
 
 @dataclass

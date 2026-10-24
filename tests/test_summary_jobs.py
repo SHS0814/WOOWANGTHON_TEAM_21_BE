@@ -11,6 +11,7 @@ from tests.test_dose import at, fam, open_handoffs, take, today  # noqa: F401 (f
 
 
 def _day(client, f, date: str) -> dict:
+    run_once(client.app)
     res = client.get(f"/api/v1/summaries?period=day&from={date}&to={date}", headers=f.g)
     assert res.status_code == 200, res.text
     return res.json()["items"][0]

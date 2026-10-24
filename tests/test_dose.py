@@ -9,6 +9,7 @@ from datetime import datetime
 import pytest
 
 from app.clock import clock
+from app.jobs import run_once
 from app.timeutil import KST
 from tests.conftest import SAMPLE_PNG, Family, week_schedule
 
@@ -25,7 +26,13 @@ def fam(client, reader):
     return f
 
 
+def jobs(client) -> None:
+    """1분 예약 작업 한 번 (상태 갱신은 예약 작업만 한다, R-018)."""
+    run_once(client.app)
+
+
 def today(client, headers) -> dict:
+    jobs(client)
     res = client.get("/api/v1/dose-events/today", headers=headers)
     assert res.status_code == 200, res.text
     return res.json()
@@ -46,6 +53,7 @@ def upload(client, f, eid: str, **form):
 
 
 def open_handoffs(client, f) -> list[dict]:
+    jobs(client)
     return client.get("/api/v1/handoffs", headers=f.g).json()["items"]
 
 

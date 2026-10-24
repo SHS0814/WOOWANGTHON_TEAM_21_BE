@@ -7,6 +7,7 @@ from typing import Protocol
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from app.db import after_commit
 from app.models import Device
 
 log = logging.getLogger(__name__)
@@ -46,6 +47,10 @@ def notify_guardians(
     data: dict,
     exclude_device_id: str | None = None,
 ) -> None:
+    """보호자 전원에게 푸시. **커밋이 성공한 뒤에** 보낸다 (롤백되면 보내지 않음).
+
+    호출한 쪽은 이후에 반드시 db.commit() 한다.
+    """
     guardians = db.scalars(
         select(Device).where(
             Device.family_id == family_id,
@@ -53,13 +58,12 @@ def notify_guardians(
             Device.revoked_at.is_(None),
         )
     ).all()
-    sender.send(
-        [
-            PushMessage(g.id, g.push_token, title, body, data)
-            for g in guardians
-            if g.id != exclude_device_id
-        ]
-    )
+    messages = [
+        PushMessage(g.id, g.push_token, title, body, data)
+        for g in guardians
+        if g.id != exclude_device_id
+    ]
+    after_commit(db, lambda: sender.send(messages))
 
 
 class ExpoPushSender:

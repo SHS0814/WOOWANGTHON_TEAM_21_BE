@@ -13,7 +13,7 @@ from fastapi import FastAPI
 
 from app import __version__, jobs
 from app.config import Settings, get_settings
-from app.db import Base, make_engine, make_sessionmaker
+from app.db import ensure_schema, make_engine, make_sessionmaker
 from app.errors import install_error_handlers
 from app.push import ExpoPushSender, PushSender, RecordingPushSender
 from app.ratelimit import SlidingWindow
@@ -30,7 +30,7 @@ def create_app(
 ) -> FastAPI:
     settings = settings or get_settings()
     engine = make_engine(settings.database_url)
-    Base.metadata.create_all(engine)
+    ensure_schema(engine)
 
     @asynccontextmanager
     async def lifespan(app: FastAPI):
