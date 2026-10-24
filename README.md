@@ -34,7 +34,7 @@ tests/
 ```bash
 cp .env.example .env          # 필요한 값만 채운다. .env 는 커밋하지 않는다
 uv sync --extra claude        # Claude 판독기를 안 쓰면 --extra 생략
-uv run uvicorn app.main:app --reload
+uv run uvicorn app.main:create_app --factory --reload
 curl http://localhost:8000/health
 ```
 
