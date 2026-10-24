@@ -214,3 +214,10 @@ def test_daily_reading_limit(client, settings):
         )
     res = client.post("/api/v1/pillboxes/detect", files=_files(), headers=f.g)
     assert res.status_code == 429 and res.json()["error"]["code"] == "daily_reading_limit"
+
+
+def test_baseline_reads_use_baseline_purpose(client, reader):
+    f = Family(client)
+    f.register_pillbox()
+    client.post("/api/v1/refills", files=_files(), headers=f.g)
+    assert reader.purposes == ["baseline", "baseline"]

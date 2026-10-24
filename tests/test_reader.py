@@ -46,3 +46,14 @@ def test_ollama_reader_unavailable_without_server():
     settings = Settings(_env_file=None, ollama_url="http://127.0.0.1:9")
     with pytest.raises(ReaderUnavailable):
         build_reader("ollama", settings)
+
+
+def test_mock_reader_baseline_is_all_full():
+    """R-015 C1: 등록·리필 기준선 판독은 모두 full (매일 판독의 무작위성은 그대로)."""
+    reader = MockReader(empty_ratio=0.9, unclear_ratio=0.1)
+    layout = Layout(rows=2, cols=7)
+    base = reader.read_cells(b"photo", layout, purpose="baseline")
+    assert base.is_mock is True
+    assert {c.state for c in base.cells} == {"full"}
+    daily = reader.read_cells(b"photo", layout)
+    assert {c.state for c in daily.cells} != {"full"}

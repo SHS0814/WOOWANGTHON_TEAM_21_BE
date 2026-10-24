@@ -12,6 +12,7 @@ from app.reader.base import (
     CellReadings,
     Layout,
     LayoutProposal,
+    Purpose,
 )
 
 DEFAULT_LAYOUT = Layout(
@@ -41,8 +42,21 @@ class MockReader:
             raw_response=json.dumps({"mock": True}),
         )
 
-    def read_cells(self, image: bytes, layout: Layout) -> CellReadings:
+    def read_cells(self, image: bytes, layout: Layout, purpose: Purpose = "dose") -> CellReadings:
         seed = hashlib.sha256(image).hexdigest()
+        if purpose == "baseline":
+            # 기준선은 "약을 채운 약통" 사진이다. 무작위로 빈 칸을 만들면 시연 중에
+            # 엉뚱한 인계(refill_overdue 등)가 생기므로 모두 full 로 돌려준다 (R-015 C1)
+            return CellReadings(
+                provider=self.provider,
+                model=self.model,
+                is_mock=True,
+                cells=[
+                    CellReading(cell_id=cid, state="full", confidence=0.99)
+                    for cid in layout.cell_ids()
+                ],
+                raw_response=json.dumps({"mock": True, "purpose": "baseline"}),
+            )
         cells = []
         for cid in layout.cell_ids():
             rng = random.Random(f"{seed}:{cid}")

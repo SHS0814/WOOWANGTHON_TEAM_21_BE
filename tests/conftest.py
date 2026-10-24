@@ -53,12 +53,14 @@ class FakeReader:
         self.states: dict[str, str] = {}
         self.confidence: dict[str, float] = {}
         self.fail = False
+        self.purposes: list[str] = []
         self._mock = MockReader()
 
     def detect_layout(self, image: bytes):
         return self._mock.detect_layout(image)
 
-    def read_cells(self, image: bytes, layout: Layout) -> CellReadings:
+    def read_cells(self, image: bytes, layout: Layout, purpose: str = "dose") -> CellReadings:
+        self.purposes.append(purpose)
         if self.fail:
             raise ReaderError("boom")
         return CellReadings(

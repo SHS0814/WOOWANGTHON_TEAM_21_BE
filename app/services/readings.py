@@ -10,6 +10,7 @@ from app.config import Settings
 from app.errors import ApiError
 from app.models import Photo, Reading
 from app.reader import CellReadings, Layout, LayoutProposal, Reader, ReaderError
+from app.reader.base import Purpose
 from app.storage import check_upload, save
 from app.timeutil import KST, kst_date, kst_day_bounds
 
@@ -114,10 +115,11 @@ def read_cells(
     data: bytes,
     layout: Layout,
     dose_event_id: str | None = None,
+    purpose: Purpose = "dose",
 ) -> tuple[Reading, CellReadings | None]:
     """판독 실패면 (오류 기록, None). 호출한 쪽이 실패를 어떻게 다룰지 정한다."""
     try:
-        result = reader.read_cells(data, layout)
+        result = reader.read_cells(data, layout, purpose=purpose)
     except ReaderError as e:
         return _failed(db, reader, photo, "cells", e, dose_event_id=dose_event_id), None
     reading = Reading(

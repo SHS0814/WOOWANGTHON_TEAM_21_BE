@@ -14,6 +14,7 @@ from app.reader.base import (
     CellReadings,
     Layout,
     LayoutProposal,
+    Purpose,
     ReaderError,
     ReaderUnavailable,
     normalize_cells,
@@ -84,7 +85,7 @@ class OllamaReader:
             uncertain=bool(data.get("uncertain", True)),
         )
 
-    def read_cells(self, image: bytes, layout: Layout) -> CellReadings:
+    def read_cells(self, image: bytes, layout: Layout, purpose: Purpose = "dose") -> CellReadings:
         prompt = CELLS_PROMPT.format(
             rows=layout.rows,
             cols=layout.cols,

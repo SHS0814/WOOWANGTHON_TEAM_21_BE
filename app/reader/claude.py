@@ -12,6 +12,7 @@ from app.reader.base import (
     CellReadings,
     Layout,
     LayoutProposal,
+    Purpose,
     ReaderError,
     ReaderUnavailable,
     normalize_cells,
@@ -89,7 +90,7 @@ class ClaudeReader:
             uncertain=data["uncertain"],
         )
 
-    def read_cells(self, image: bytes, layout: Layout) -> CellReadings:
+    def read_cells(self, image: bytes, layout: Layout, purpose: Purpose = "dose") -> CellReadings:
         prompt = CELLS_PROMPT.format(
             rows=layout.rows,
             cols=layout.cols,

@@ -115,7 +115,9 @@ def _baseline_refill(
 ) -> Refill:
     """사진을 칸 판독해서 기준선을 만든다. 애매한 칸은 일단 full (api.md 3.15)."""
     data = load(settings, photo)
-    reading, result = rs.read_cells(db, request.app.state.cells_reader, photo, data, layout)
+    reading, result = rs.read_cells(
+        db, request.app.state.cells_reader, photo, data, layout, purpose="baseline"
+    )
     if result is None:
         db.commit()  # 실패 기록은 남긴다
         raise ApiError(502, "reading_failed", "AI 판독 실패")

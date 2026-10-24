@@ -10,6 +10,8 @@ from pydantic import BaseModel, Field, model_validator
 
 CellState = Literal["empty", "full", "unclear"]
 TimeOfDay = Literal["morning", "noon", "evening", "bedtime"]
+# 판독 목적. baseline = 약통 등록·리필 기준선 (채운 직후 사진), dose = 매 복약
+Purpose = Literal["dose", "baseline"]
 
 
 class Cell(BaseModel):
@@ -87,7 +89,9 @@ class Reader(Protocol):
 
     def detect_layout(self, image: bytes) -> LayoutProposal: ...
 
-    def read_cells(self, image: bytes, layout: Layout) -> CellReadings: ...
+    def read_cells(
+        self, image: bytes, layout: Layout, purpose: Purpose = "dose"
+    ) -> CellReadings: ...
 
 
 def normalize_cells(layout: Layout, cells: list[CellReading]) -> list[CellReading]:
