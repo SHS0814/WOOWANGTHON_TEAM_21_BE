@@ -1,0 +1,148 @@
+{
+  "version": 1,
+  "photos": [
+    {
+      "id": "synthetic-2x7",
+      "file": "synthetic-2x7.png",
+      "pillbox": {
+        "name": "합성 2x7",
+        "layout": {
+          "rows": 2,
+          "cols": 7,
+          "row_labels": [
+            "아침",
+            "저녁"
+          ],
+          "col_labels": [
+            "월",
+            "화",
+            "수",
+            "목",
+            "금",
+            "토",
+            "일"
+          ]
+        }
+      },
+      "cells": {
+        "r0c0": "empty",
+        "r0c1": "full",
+        "r0c2": "full",
+        "r0c3": "empty",
+        "r0c4": "full",
+        "r0c5": "full",
+        "r0c6": "full",
+        "r1c0": "full",
+        "r1c1": "empty",
+        "r1c2": "empty",
+        "r1c3": "full",
+        "r1c4": "full",
+        "r1c5": "full",
+        "r1c6": "empty"
+      },
+      "target_cell_id": "r0c2",
+      "conditions": {
+        "synthetic": true
+      },
+      "notes": "합성 이미지. 실제 사진 아님"
+    },
+    {
+      "id": "synthetic-1x7",
+      "file": "synthetic-1x7.png",
+      "pillbox": {
+        "name": "합성 1x7",
+        "layout": {
+          "rows": 1,
+          "cols": 7,
+          "row_labels": [
+            ""
+          ],
+          "col_labels": [
+            "월",
+            "화",
+            "수",
+            "목",
+            "금",
+            "토",
+            "일"
+          ]
+        }
+      },
+      "cells": {
+        "r0c0": "full",
+        "r0c1": "full",
+        "r0c2": "empty",
+        "r0c3": "empty",
+        "r0c4": "full",
+        "r0c5": "full",
+        "r0c6": "full"
+      },
+      "target_cell_id": "r0c2",
+      "conditions": {
+        "synthetic": true
+      },
+      "notes": "합성 이미지. 실제 사진 아님"
+    },
+    {
+      "id": "synthetic-4x7",
+      "file": "synthetic-4x7.png",
+      "pillbox": {
+        "name": "합성 4x7",
+        "layout": {
+          "rows": 4,
+          "cols": 7,
+          "row_labels": [
+            "아침",
+            "점심",
+            "저녁",
+            "취침"
+          ],
+          "col_labels": [
+            "월",
+            "화",
+            "수",
+            "목",
+            "금",
+            "토",
+            "일"
+          ]
+        }
+      },
+      "cells": {
+        "r0c0": "empty",
+        "r0c1": "full",
+        "r0c2": "empty",
+        "r0c3": "full",
+        "r0c4": "full",
+        "r0c5": "empty",
+        "r0c6": "empty",
+        "r1c0": "full",
+        "r1c1": "empty",
+        "r1c2": "empty",
+        "r1c3": "full",
+        "r1c4": "full",
+        "r1c5": "full",
+        "r1c6": "full",
+        "r2c0": "full",
+        "r2c1": "empty",
+        "r2c2": "full",
+        "r2c3": "full",
+        "r2c4": "full",
+        "r2c5": "full",
+        "r2c6": "full",
+        "r3c0": "empty",
+        "r3c1": "full",
+        "r3c2": "full",
+        "r3c3": "empty",
+        "r3c4": "empty",
+        "r3c5": "full",
+        "r3c6": "full"
+      },
+      "target_cell_id": "r0c2",
+      "conditions": {
+        "synthetic": true
+      },
+      "notes": "합성 이미지. 실제 사진 아님"
+    }
+  ]
+}
