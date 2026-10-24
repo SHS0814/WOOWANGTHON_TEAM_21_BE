@@ -48,6 +48,12 @@ class Settings(BaseSettings):
     reask_offsets_min: list[int] = Field(default_factory=lambda: [10, 20])
     no_response_handoff_min: int = 30
     retake_wait_min: int = 15
+    # 1분마다 복약 건 열기·인계 기한 확인·요약 푸시·정리 (backend.md 9장)
+    jobs_enabled: bool = True
+    # Expo 푸시 실제 발송. false 면 로그만 남긴다
+    expo_push_enabled: bool = False
+    expo_access_token: str | None = None
+
     # 리필 안내 기준 = 하루 복용 횟수 × 이 값 (R-010 5번)
     refill_threshold_days: int = 2
     # 복약 시각 전 사진은 이 시간 전부터만 받음 (R-010 13번)

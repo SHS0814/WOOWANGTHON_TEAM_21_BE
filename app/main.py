@@ -15,7 +15,7 @@ from app.errors import install_error_handlers
 from app.push import PushSender, RecordingPushSender
 from app.ratelimit import SlidingWindow
 from app.reader import Reader, build_reader
-from app.routers import account, pairing, photos, pillboxes
+from app.routers import account, dose, handoffs, pairing, photos, pillboxes
 
 
 def create_app(
@@ -57,6 +57,6 @@ def create_app(
             },
         }
 
-    for module in (pairing, account, pillboxes, photos):
+    for module in (pairing, account, pillboxes, photos, dose, handoffs):
         app.include_router(module.router, prefix="/api/v1")
     return app

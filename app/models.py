@@ -77,6 +77,9 @@ class Photo(Base):
     uploaded_at: Mapped[datetime] = mapped_column(UTCDateTime, default=_now)
     uploaded_by_device_id: Mapped[str] = mapped_column(ForeignKey("devices.id"))
     client_upload_id: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    # 복약 사진의 처리 결과 (같은 client_upload_id 재전송에 같은 결과를 돌려주기 위해)
+    upload_result: Mapped[str | None] = mapped_column(String(24), nullable=True)
+    upload_is_mock: Mapped[bool | None] = mapped_column(Boolean, nullable=True)
     deleted_at: Mapped[datetime | None] = mapped_column(UTCDateTime, nullable=True)
 
 
@@ -183,6 +186,10 @@ class Handoff(Base):
     reading_id: Mapped[str | None] = mapped_column(ForeignKey("readings.id"), nullable=True)
     notified_at: Mapped[datetime] = mapped_column(UTCDateTime, default=_now)
     late_photo: Mapped[bool] = mapped_column(Boolean, default=False)
+    # 복약 건의 결과를 정하는 인계인지. 대상 칸과 무관한 리필 확인 요청(5.4)만 False (R-014)
+    binds_event: Mapped[bool] = mapped_column(Boolean, default=True)
+    # 보호자에게 푸시를 보냈는지. 재알림 금지(C2)로 푸시 없이 만든 인계는 False
+    pushed: Mapped[bool] = mapped_column(Boolean, default=True)
     verdict: Mapped[str | None] = mapped_column(String(16), nullable=True)
     verdict_by_device_id: Mapped[str | None] = mapped_column(
         ForeignKey("devices.id"), nullable=True

@@ -8,6 +8,7 @@ from app.clock import clock
 from app.config import Settings
 from app.main import create_app
 from app.push import RecordingPushSender
+from app.reader import CellReading, CellReadings, Layout, MockReader, ReaderError
 from app.timeutil import KST
 
 SAMPLE_PNG = (
@@ -41,9 +42,49 @@ def push() -> RecordingPushSender:
     return RecordingPushSender()
 
 
+class FakeReader:
+    """칸 상태를 테스트에서 정하는 판독기. 정하지 않은 칸은 default. is_mock=True."""
+
+    provider = "fake"
+    model = "fake-v1"
+
+    def __init__(self) -> None:
+        self.default = "full"
+        self.states: dict[str, str] = {}
+        self.confidence: dict[str, float] = {}
+        self.fail = False
+        self._mock = MockReader()
+
+    def detect_layout(self, image: bytes):
+        return self._mock.detect_layout(image)
+
+    def read_cells(self, image: bytes, layout: Layout) -> CellReadings:
+        if self.fail:
+            raise ReaderError("boom")
+        return CellReadings(
+            provider=self.provider,
+            model=self.model,
+            is_mock=True,
+            cells=[
+                CellReading(
+                    cell_id=cid,
+                    state=self.states.get(cid, self.default),
+                    confidence=self.confidence.get(cid, 0.95),
+                )
+                for cid in layout.cell_ids()
+            ],
+        )
+
+
 @pytest.fixture
-def client(settings, push, now) -> TestClient:
-    return TestClient(create_app(settings, push=push))
+def reader() -> FakeReader:
+    return FakeReader()
+
+
+@pytest.fixture
+def client(settings, push, now, reader) -> TestClient:
+    settings.jobs_enabled = False
+    return TestClient(create_app(settings, push=push, cells_reader=reader))
 
 
 def bearer(token: str) -> dict:

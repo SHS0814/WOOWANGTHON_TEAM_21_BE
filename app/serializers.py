@@ -1,11 +1,13 @@
 """DB 객체 → API 응답 (api.md 2장 공통 객체)."""
 
+from datetime import timedelta
+
 from fastapi import Request
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.config import Settings
-from app.models import Device, Pillbox, Reading, Refill, ScheduleSlot
+from app.models import Device, DoseEvent, Handoff, Photo, Pillbox, Reading, Refill, ScheduleSlot
 from app.storage import photo_out
 from app.timeutil import iso
 
@@ -68,8 +70,6 @@ def pillbox_out(pb: Pillbox) -> dict:
 
 
 def reading_out(db: Session, settings: Settings, url_base: str, reading: Reading) -> dict:
-    from app.models import Photo
-
     photo = db.get(Photo, reading.photo_id)
     return {
         "id": reading.id,
@@ -101,3 +101,117 @@ def refill_out(db: Session, settings: Settings, url_base: str, refill: Refill) -
         "baseline_cells": refill.baseline_cells,
         "needs_review": needs_review,
     }
+
+
+# ---------- 복약 건, 인계 (api.md 2.5, 2.6) ----------
+
+
+def _elder_status(event) -> str:
+    if event.state == "scheduled":
+        return "upcoming"
+    if event.state in ("asked", "reading", "retake_requested", "reminded"):
+        return "waiting"
+    if event.outcome == "taken":
+        return "recorded"
+    return "no_record"
+
+
+def handoff_brief(h) -> dict | None:
+    if h is None:
+        return None
+    return {
+        "id": h.id,
+        "reason": h.reason,
+        "notified_at": iso(h.notified_at),
+        "verdict": h.verdict,
+        "verdict_at": iso(h.verdict_at),
+    }
+
+
+def event_out(
+    db: Session, settings: Settings, url_base: str, event: DoseEvent, *, guardian: bool
+) -> dict:
+    slot = db.get(ScheduleSlot, event.slot_id)
+    photos = db.scalars(
+        select(Photo)
+        .where(Photo.dose_event_id == event.id, Photo.deleted_at.is_(None))
+        .order_by(Photo.uploaded_at)
+    ).all()
+    readings = db.scalars(
+        select(Reading)
+        .where(Reading.dose_event_id == event.id, Reading.kind == "cells")
+        .order_by(Reading.created_at)
+    ).all()
+    latest = next((r for r in reversed(readings) if r.error is None and r.cells), None)
+    handoff = None
+    if guardian:
+        handoff = db.scalar(
+            select(Handoff)
+            .where(Handoff.dose_event_id == event.id, Handoff.binds_event)
+            .order_by(Handoff.notified_at.desc())
+            .limit(1)
+        )
+    decided_by = db.get(Device, event.decided_by_device_id) if event.decided_by_device_id else None
+    asks = [event.scheduled_at] + [
+        event.scheduled_at + timedelta(minutes=m) for m in settings.reask_offsets_min
+    ]
+    return {
+        "id": event.id,
+        "date": event.date,
+        "slot": slot_out(slot),
+        "scheduled_at": iso(event.scheduled_at),
+        "state": event.state,
+        "outcome": event.outcome,
+        "outcome_source": event.outcome_source,
+        "decided_by": person(decided_by),
+        "taken_at": iso(event.taken_at),
+        "resolved_at": iso(event.resolved_at),
+        "elder_status": _elder_status(event),
+        "ask_times": [iso(t) for t in asks],
+        "handoff_at": iso(event.scheduled_at + timedelta(minutes=settings.no_response_handoff_min)),
+        "retake_deadline_at": iso(event.retake_deadline_at)
+        if event.state in ("retake_requested", "reminded")
+        else None,
+        "photos": [photo_out(settings, url_base, p) for p in photos],
+        "is_mock": any(r.is_mock for r in readings),
+        "is_simulated": event.is_simulated,
+        "latest_reading": reading_out(db, settings, url_base, latest)
+        if guardian and latest
+        else None,
+        "handoff": handoff_brief(handoff) if guardian else None,
+    }
+
+
+def handoff_out(
+    db: Session, settings: Settings, url_base: str, h: Handoff, *, detail: bool
+) -> dict:
+    from app.services.dose import ALLOWED_VERDICTS
+
+    event = db.get(DoseEvent, h.dose_event_id)
+    verdict_by = db.get(Device, h.verdict_by_device_id) if h.verdict_by_device_id else None
+    out = {
+        "id": h.id,
+        "reason": h.reason,
+        "notified_at": iso(h.notified_at),
+        "verdict": h.verdict,
+        "verdict_by": person(verdict_by),
+        "verdict_at": iso(h.verdict_at),
+        "allowed_verdicts": ALLOWED_VERDICTS[h.reason],
+        "late_photo": h.late_photo,
+        "dose_event": event_out(db, settings, url_base, event, guardian=True),
+    }
+    if detail:
+        readings = db.scalars(
+            select(Reading)
+            .where(
+                Reading.dose_event_id == event.id,
+                Reading.kind == "cells",
+                Reading.error.is_(None),
+            )
+            .order_by(Reading.created_at)
+        ).all()
+        slot = db.get(ScheduleSlot, event.slot_id)
+        pb = db.get(Pillbox, slot.pillbox_id)
+        out["readings"] = [reading_out(db, settings, url_base, r) for r in readings]
+        out["layout"] = pb.layout
+    return out

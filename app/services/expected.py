@@ -52,8 +52,6 @@ def expected_states(
 ) -> dict[str, str]:
     """칸별 기대 상태 (full | empty | ignored). before 이전 복약 건만 반영한다."""
     states = {c["cell_id"]: c["state"] for c in refill.baseline_cells}
-    for cid in refill.ignored_cells or []:
-        states[cid] = "ignored"
     q = (
         select(DoseEvent, ScheduleSlot.cell_id)
         .join(ScheduleSlot, ScheduleSlot.id == DoseEvent.slot_id)
@@ -73,6 +71,10 @@ def expected_states(
             states[cell_id] = "empty"
         elif event.state == "handed_off" or event.outcome in ("not_taken", "acknowledged"):
             states[cell_id] = "ignored"
+    # 리필 확인 "아니요"로 뺀 칸은 복약 기록보다 우선한다 (R-010 3번)
+    for cid in refill.ignored_cells or []:
+        if cid in states:
+            states[cid] = "ignored"
     return states
 
 
