@@ -1,0 +1,37 @@
+# 초안. DB는 아직 앱에서 쓰지 않는다 (엔드포인트 구현은 API 계약서 승인 뒤)
+services:
+  api:
+    build: .
+    env_file: .env
+    ports:
+      - "127.0.0.1:8000:8000"   # Cloudflare Tunnel 이 이 포트로 연결
+    volumes:
+      - ./data/photos:/data/photos
+    depends_on:
+      - db
+    restart: always
+
+  db:
+    image: postgres:16
+    environment:
+      POSTGRES_USER: woowang
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-woowang}
+      POSTGRES_DB: woowang
+    volumes:
+      - ./data/postgres:/var/lib/postgresql/data
+    restart: always
+
+  # (선택) 로컬 판독 모델. GPU 사용 시 NVIDIA Container Toolkit 필요
+  ollama:
+    image: ollama/ollama:0.5.4
+    profiles: ["ollama"]
+    volumes:
+      - ./data/ollama:/root/.ollama
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+    restart: always

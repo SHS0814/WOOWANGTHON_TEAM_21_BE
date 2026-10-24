@@ -11,3 +11,6 @@ venv/
 .mypy_cache/
 .ruff_cache/
 .DS_Store
+# 정확도 검증용 실사진·결과 (개인정보, 커밋 금지)
+/harness/data/
+/harness/results/
