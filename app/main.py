@@ -10,6 +10,7 @@ from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
 
 from fastapi import FastAPI
+from fastapi.middleware.cors import CORSMiddleware
 
 from app import __version__, jobs
 from app.config import Settings, get_settings
@@ -62,6 +63,14 @@ def create_app(
         ),
     }
     install_error_handlers(app)
+    app.add_middleware(
+        CORSMiddleware,
+        allow_origins=settings.cors_origin_list,
+        allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"],
+        allow_headers=["Authorization", "Content-Type"],
+        allow_credentials=False,  # 쿠키 없이 Bearer 토큰만 쓴다
+        max_age=600,
+    )
 
     @app.get("/health")
     def health() -> dict:

@@ -20,6 +20,12 @@ class Settings(BaseSettings):
     # 앱에 내려주는 URL의 앞부분 (예: https://woowang.example.com). 비우면 요청 주소를 쓴다
     public_base_url: str | None = None
 
+    # 웹에서 앱을 열 때 허용할 출처 (쉼표로 구분). 기본은 개발용 localhost 만.
+    # 운영에서는 실제 웹 앱 주소만 적는다. "*" 는 ENV=dev 에서만 허용한다
+    cors_origins: str = (
+        "http://localhost:8081,http://127.0.0.1:8081,http://localhost:19006,http://127.0.0.1:19006"
+    )
+
     # 시연 트리거 (R-010 10번). true 이고 가족이 is_demo 일 때만 POST /dev/dose-events 동작
     demo_mode: bool = False
 
@@ -58,6 +64,13 @@ class Settings(BaseSettings):
     refill_threshold_days: int = 2
     # 복약 시각 전 사진은 이 시간 전부터만 받음 (R-010 13번)
     early_photo_window_min: int = 60
+
+    @property
+    def cors_origin_list(self) -> list[str]:
+        origins = [o.strip().rstrip("/") for o in self.cors_origins.split(",") if o.strip()]
+        if "*" in origins and self.env != "dev":
+            raise ValueError("CORS_ORIGINS 에 * 는 ENV=dev 에서만 쓸 수 있다")
+        return origins
 
     @property
     def ai_external_transfer(self) -> bool:
