@@ -64,6 +64,8 @@ API 문서는 서버를 띄운 뒤 `/docs` 에서도 볼 수 있다.
 
 ## 실행 (Docker Compose)
 
+상시 가동, Cloudflare Tunnel 연결, 재부팅 복구, 업타임 모니터, 백업, 데모 가족은 [docs/deploy.md](docs/deploy.md) 참고.
+
 ```bash
 cp .env.example .env
 docker compose up -d --build            # api + db

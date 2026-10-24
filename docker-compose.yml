@@ -1,9 +1,11 @@
+name: woowang
+
 services:
   api:
     build: .
     env_file: .env
     ports:
-      - "127.0.0.1:8000:8000"   # Cloudflare Tunnel 이 이 포트로 연결
+      - "127.0.0.1:${API_PORT:-8000}:8000"   # Cloudflare Tunnel 이 이 포트로 연결
     volumes:
       - ./data/photos:/data/photos
     depends_on:

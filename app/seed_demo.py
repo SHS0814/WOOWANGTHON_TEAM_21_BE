@@ -198,7 +198,7 @@ def main(argv: list[str] | None = None) -> int:
                 f"모의 판독             {'예 (앱에 모의 판독 표시)' if out['reader_is_mock'] else '아니요'}",
                 "",
                 '시연 트리거: POST /api/v1/dev/dose-events {"slot_id": ...} (오늘 요일 칸)',
-                "심사 종료 뒤: 보호자 앱 설정에서 기기 해제, 또는 docs/deploy.md 의 해제 절차",
+                "심사 종료(11/21) 뒤: python -m app.seed_demo revoke 로 토큰 폐기 (docs/deploy.md 7장)",
             ]
         ),
         file=sys.stdout,
