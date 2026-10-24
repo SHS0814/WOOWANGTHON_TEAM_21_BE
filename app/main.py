@@ -54,6 +54,8 @@ def create_app(
         )
     app.state.push = push
     app.state.summary_sent = set()
+    # family_id → 다음 복약 사진 1장의 모의 판독 시나리오 (QA, R-018)
+    app.state.mock_scenarios = {}
     app.state.layout_reader = layout_reader or build_reader(settings.reader_layout, settings)
     app.state.cells_reader = cells_reader or build_reader(settings.reader_cells, settings)
     app.state.limits = {

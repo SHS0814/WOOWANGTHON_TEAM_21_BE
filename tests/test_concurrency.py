@@ -190,3 +190,58 @@ def test_postgres_concurrent_jobs_create_one_handoff(tmp_path, push, now, reader
     assert errors == []
     assert _open_count(client.app, "no_response") == 1
     assert [m.data.get("reason") for m in push.sent] == ["no_response"]
+
+
+def _upgrade_existing_db(engine) -> None:
+    """새 인덱스가 없던 예전 DB에 중복 열린 인계가 있는 상황 → 시작할 때 정리하고 인덱스를 붙인다."""
+    from sqlalchemy import inspect, text
+
+    from app.db import ensure_schema
+
+    with engine.begin() as conn:
+        conn.execute(text("DROP INDEX uq_open_handoff_event_reason"))
+        h = conn.execute(
+            text("SELECT id, family_id, dose_event_id, reason, notified_at FROM handoffs")
+        ).one()
+        conn.execute(
+            text(
+                "INSERT INTO handoffs (id, family_id, dose_event_id, reason, notified_at,"
+                " late_photo, binds_event, pushed)"
+                " VALUES ('zzzz-dup', :f, :e, :r, :t, false, true, true)"
+            ),
+            {"f": h.family_id, "e": h.dose_event_id, "r": h.reason, "t": h.notified_at},
+        )
+    ensure_schema(engine)
+    names = {i["name"] for i in inspect(engine).get_indexes("handoffs")}
+    assert "uq_open_handoff_event_reason" in names
+    with engine.connect() as conn:
+        rows = conn.execute(text("SELECT id FROM handoffs")).all()
+    assert [r.id for r in rows] == [h.id]  # 먼저 생긴 것(같은 시각이면 id가 작은 것)만 남는다
+
+
+def test_existing_db_gets_index_and_duplicates_removed(file_client):
+    _setup(file_client)
+    clock.set(DEADLINE)
+    run_once(file_client.app)
+    _upgrade_existing_db(file_client.app.state.engine)
+
+
+@pytest.mark.skipif(not os.environ.get("TEST_DATABASE_URL"), reason="PostgreSQL 없음")
+def test_existing_postgres_db_gets_index(tmp_path, push, now, reader):
+    from sqlalchemy import create_engine, text
+
+    from app.config import Settings
+
+    url = os.environ["TEST_DATABASE_URL"]
+    engine = create_engine(url)
+    with engine.begin() as conn:
+        conn.execute(text("DROP SCHEMA public CASCADE; CREATE SCHEMA public"))
+    engine.dispose()
+    settings = Settings(
+        _env_file=None, database_url=url, photo_dir=str(tmp_path / "p"), jobs_enabled=False
+    )
+    client = TestClient(create_app(settings, push=push, cells_reader=reader))
+    _setup(client)
+    clock.set(DEADLINE)
+    run_once(client.app)
+    _upgrade_existing_db(client.app.state.engine)

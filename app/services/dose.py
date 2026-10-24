@@ -14,6 +14,7 @@ from app.config import Settings
 from app.models import DoseEvent, Family, Handoff, Photo, Reading, Refill, ScheduleSlot
 from app.push import PushSender, notify_guardians
 from app.reader import Layout, Reader
+from app.reader.mock import ScenarioReader
 from app.services import readings as rs
 from app.services.classify import classify
 from app.services.expected import active_pillbox, active_slots, expected_states, latest_refill
@@ -224,10 +225,12 @@ def process_photo(
     data: bytes,
     now: datetime,
     prior_state: str,
+    mock_scenario: str | None = None,
 ) -> UploadOutcome:
     """사진 판독과 분류. 호출 전에 can_accept_photo 로 확인한다.
 
     prior_state: 판독 중(reading) 표시 전의 상태. 판독하는 동안 event.state 는 reading 이다.
+    mock_scenario: QA용 결정적 모의 판독 시나리오 (POST /dev/mock-scenario, R-018)
     """
     event.state = prior_state
     late = now > handoff_deadline(settings, event)
@@ -257,6 +260,9 @@ def process_photo(
         return handoff("unclear", None)
 
     layout = Layout.model_validate(pillbox.layout)
+    expected = expected_states(db, refill, before=event.scheduled_at, exclude_event_id=event.id)
+    if mock_scenario is not None:
+        reader = ScenarioReader(mock_scenario, expected, slot.cell_id)
     reading, result = rs.read_cells(db, reader, photo, data, layout, dose_event_id=event.id)
     reading.target_cell_id = slot.cell_id
     is_mock = reading.is_mock
@@ -267,7 +273,6 @@ def process_photo(
         kind = "unclear"
         c = None
     else:
-        expected = expected_states(db, refill, before=event.scheduled_at, exclude_event_id=event.id)
         c = classify(result, expected, slot.cell_id, settings.normal_confidence)
         reading.cells = c.cells
         kind = c.kind

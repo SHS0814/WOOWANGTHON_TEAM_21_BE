@@ -1,7 +1,7 @@
 """복약 건, 사진 업로드, 시연 트리거 (api.md 3.17~3.19, 3.27)."""
 
 from datetime import date, datetime
-from typing import Annotated
+from typing import Annotated, Literal
 
 from fastapi import APIRouter, Depends, File, Form, Query, Request, UploadFile
 from pydantic import BaseModel
@@ -143,6 +143,7 @@ async def upload_dose_photo(
         dose_event_id=event.id,
         client_upload_id=client_upload_id,
     )
+    scenario = request.app.state.mock_scenarios.pop(auth.family.id, None)
     prev_state = event.state
     event.state = "reading"
     db.commit()
@@ -158,6 +159,7 @@ async def upload_dose_photo(
             load(settings, p),
             now,
             prev_state,
+            mock_scenario=scenario,
         )
     except Exception:
         db.rollback()
@@ -207,3 +209,29 @@ def simulate_dose_event(
     event.state = "asked"
     db.commit()
     return event_out(db, settings, base_url(request, settings), event, guardian=auth.is_guardian)
+
+
+class MockScenarioIn(BaseModel):
+    scenario: Literal["normal", "unclear", "unchanged", "double_suspected"] | None
+
+
+@router.post("/dev/mock-scenario")
+def set_mock_scenario(
+    body: MockScenarioIn,
+    request: Request,
+    auth: Auth = Depends(auth_any),
+    settings: Settings = Depends(get_settings),
+):
+    """QA용: 다음 복약 사진 1장의 모의 판독 결과를 정한다 (R-018).
+
+    DEMO_MODE, 데모 가족, 매일 판독기가 mock 일 때만. 그 밖에는 경로가 없는 것처럼 404.
+    """
+    reader = request.app.state.cells_reader
+    if not (settings.demo_mode and auth.family.is_demo and reader.provider == "mock"):
+        raise not_found()
+    scenarios = request.app.state.mock_scenarios
+    if body.scenario is None:
+        scenarios.pop(auth.family.id, None)
+    else:
+        scenarios[auth.family.id] = body.scenario
+    return {"scenario": body.scenario, "applies_to": "next_dose_photo", "is_mock": True}

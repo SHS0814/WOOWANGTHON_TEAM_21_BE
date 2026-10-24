@@ -6,6 +6,7 @@
 import hashlib
 import json
 import random
+from typing import Literal
 
 from app.reader.base import (
     CellReading,
@@ -76,4 +77,57 @@ class MockReader:
             is_mock=True,
             cells=cells,
             raw_response=json.dumps({"mock": True, "seed": seed[:12]}),
+        )
+
+
+Scenario = Literal["normal", "unclear", "unchanged", "double_suspected"]
+
+
+class ScenarioReader:
+    """QA용 결정적 모의 판독 (R-018). 정해진 시나리오가 나오도록 칸 결과를 만든다.
+
+    사진은 보지 않는다. 기대 상태(expected)를 기준으로 대상 칸과 다른 칸을 정한다.
+    결과는 MockReader 와 같이 is_mock=True 다.
+    """
+
+    provider = MockReader.provider
+    model = MockReader.model
+
+    def __init__(self, scenario: Scenario, expected: dict[str, str], target_cell_id: str) -> None:
+        self.scenario = scenario
+        self.expected = expected
+        self.target = target_cell_id
+
+    def detect_layout(self, image: bytes) -> LayoutProposal:
+        return MockReader().detect_layout(image)
+
+    def read_cells(self, image: bytes, layout: Layout, purpose: Purpose = "dose") -> CellReadings:
+        # 다른 칸은 기대대로 (비교 제외 칸은 차 있는 것으로)
+        states = {
+            cid: "empty" if self.expected.get(cid) == "empty" else "full"
+            for cid in layout.cell_ids()
+        }
+        states[self.target] = {"unclear": "unclear", "unchanged": "full"}.get(
+            self.scenario, "empty"
+        )
+        if self.scenario == "double_suspected":
+            other = next(
+                (
+                    c
+                    for c in layout.cell_ids()
+                    if c != self.target and self.expected.get(c) == "full"
+                ),
+                None,
+            )
+            if other is not None:
+                states[other] = "empty"
+        return CellReadings(
+            provider=self.provider,
+            model=self.model,
+            is_mock=True,
+            cells=[
+                CellReading(cell_id=cid, state=states[cid], confidence=0.95)
+                for cid in layout.cell_ids()
+            ],
+            raw_response=json.dumps({"mock": True, "scenario": self.scenario}),
         )
