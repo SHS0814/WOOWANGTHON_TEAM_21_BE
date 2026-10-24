@@ -15,7 +15,9 @@ def test_create_family_and_me(client):
     assert body["device"]["role"] == "guardian" and body["device"]["is_me"]
     me = client.get("/api/v1/me", headers=bearer(body["token"])).json()
     assert me["family"]["elder_display_name"] == "어머니"
-    assert me["family"]["guardians"] == [{"device_id": body["device"]["id"], "display_name": "민수"}]
+    assert me["family"]["guardians"] == [
+        {"device_id": body["device"]["id"], "display_name": "민수"}
+    ]
     assert me["family"]["is_demo"] is False and me["family"]["has_pillbox"] is False
     assert me["server"]["timing"] == {
         "reask_offsets_min": [10, 20],
@@ -140,7 +142,9 @@ def test_devices_and_last_guardian(client):
 def test_other_family_is_not_found(client):
     a, b = Family(client), Family(client)
     elder_b = next(
-        d for d in client.get("/api/v1/devices", headers=b.g).json()["items"] if d["role"] == "elder"
+        d
+        for d in client.get("/api/v1/devices", headers=b.g).json()["items"]
+        if d["role"] == "elder"
     )
     res = client.delete(f"/api/v1/devices/{elder_b['id']}", headers=a.g)
     assert res.status_code == 404 and res.json()["error"]["code"] == "not_found"
