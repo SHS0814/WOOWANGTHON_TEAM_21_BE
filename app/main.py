@@ -3,19 +3,22 @@
 실행: uvicorn app.main:create_app --factory (가져올 때 DB에 연결하지 않도록 팩토리로 띄운다)
 """
 
+import asyncio
+import contextlib
+from contextlib import asynccontextmanager
 from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
 
 from fastapi import FastAPI
 
-from app import __version__
+from app import __version__, jobs
 from app.config import Settings, get_settings
 from app.db import Base, make_engine, make_sessionmaker
 from app.errors import install_error_handlers
-from app.push import PushSender, RecordingPushSender
+from app.push import ExpoPushSender, PushSender, RecordingPushSender
 from app.ratelimit import SlidingWindow
 from app.reader import Reader, build_reader
-from app.routers import account, dose, handoffs, pairing, photos, pillboxes
+from app.routers import account, dose, handoffs, pairing, photos, pillboxes, summaries
 
 
 def create_app(
@@ -29,11 +32,27 @@ def create_app(
     engine = make_engine(settings.database_url)
     Base.metadata.create_all(engine)
 
-    app = FastAPI(title="woowang-server", version=__version__)
+    @asynccontextmanager
+    async def lifespan(app: FastAPI):
+        task = asyncio.create_task(jobs.loop(app)) if settings.jobs_enabled else None
+        yield
+        if task is not None:
+            task.cancel()
+            with contextlib.suppress(asyncio.CancelledError):
+                await task
+
+    app = FastAPI(title="woowang-server", version=__version__, lifespan=lifespan)
     app.state.settings = settings
     app.state.engine = engine
     app.state.sessionmaker = make_sessionmaker(engine)
-    app.state.push = push or RecordingPushSender()
+    if push is None:
+        push = (
+            ExpoPushSender(settings.expo_access_token)
+            if settings.expo_push_enabled
+            else RecordingPushSender()
+        )
+    app.state.push = push
+    app.state.summary_sent = set()
     app.state.layout_reader = layout_reader or build_reader(settings.reader_layout, settings)
     app.state.cells_reader = cells_reader or build_reader(settings.reader_cells, settings)
     app.state.limits = {
@@ -57,6 +76,6 @@ def create_app(
             },
         }
 
-    for module in (pairing, account, pillboxes, photos, dose, handoffs):
+    for module in (pairing, account, pillboxes, photos, dose, handoffs, summaries):
         app.include_router(module.router, prefix="/api/v1")
     return app
