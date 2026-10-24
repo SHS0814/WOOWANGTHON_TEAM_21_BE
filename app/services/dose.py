@@ -138,10 +138,20 @@ def tick(db: Session, settings: Settings, push: PushSender, family: Family, now:
     events = db.scalars(
         select(DoseEvent).where(
             DoseEvent.family_id == family.id,
-            DoseEvent.state.in_(("scheduled", *OPEN_STATES)),
+            DoseEvent.state.in_(("scheduled", "reading", *OPEN_STATES)),
         )
     ).all()
     for e in events:
+        if e.state == "reading":
+            # 판독 중 서버가 죽은 경우: 판독 제한 시간이 지나면 다시 물어보는 상태로 돌린다
+            last = db.scalar(
+                select(Photo.uploaded_at)
+                .where(Photo.dose_event_id == e.id)
+                .order_by(Photo.uploaded_at.desc())
+                .limit(1)
+            )
+            if last is None or now - last > timedelta(seconds=settings.reader_timeout_s * 2):
+                e.state = "asked"
         if e.state == "scheduled" and e.scheduled_at <= now:
             e.state = "asked"
         if e.state == "asked" and now >= handoff_deadline(settings, e):

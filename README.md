@@ -3,15 +3,18 @@
 치매 어르신 복약 확인 앱의 서버 + AI 약통 판독 모듈. 2026 AI 우왕톤 출품작.
 사용자 PC에서 FastAPI 서버를 돌리고 Cloudflare Tunnel로 공개한다.
 
-> **현재 상태:** 서버 뼈대(`/health`), AI 판독 인터페이스, 판독 정확도 검증 하네스만 있다.
-> API 엔드포인트는 API 계약서 검토 승인 뒤 구현한다.
-> 기본 판독기는 **모의 판독기(MockReader)** 이며, 그 결과는 `is_mock=true` 로 표시된다. 실제 AI 결과가 아니다.
+> **현재 상태:** API 계약서(DOCS 저장소 `docs/design/api.md`)의 엔드포인트를 모두 구현했다.
+> 기본 판독기는 **모의 판독기(MockReader)** 이며, 그 결과는 `is_mock=true` 로 내려가고 앱에 "모의 판독"으로 표시된다. 실제 AI 결과가 아니다.
 
 ## 구성
 
 ```
 app/
-  main.py            FastAPI 앱 (/health)
+  main.py            FastAPI 앱 (create_app 팩토리)
+  routers/           API 경로 (api.md 3장)
+  services/          분류·기대 상태·복약 흐름·요약
+  jobs.py            1분 주기 작업
+  models.py          DB 테이블
   config.py          환경 변수 설정 (.env)
   reader/            AI 판독 인터페이스
     base.py          Reader 프로토콜, Layout, CellReadings
@@ -45,7 +48,21 @@ uv run pytest
 uv run ruff check . && uv run ruff format --check .
 ```
 
-## 실행 (Docker Compose, 초안)
+## 주요 환경 변수
+
+`.env.example` 참고. 자주 바꾸는 것:
+
+| 변수 | 기본 | 뜻 |
+|---|---|---|
+| `READER_LAYOUT`, `READER_CELLS` | `mock` | 판독기 (`mock` / `claude[:모델]` / `ollama[:모델]`) |
+| `PUBLIC_BASE_URL` | (비움) | 앱에 내려주는 사진 URL 앞부분 (Cloudflare Tunnel 주소) |
+| `JOBS_ENABLED` | `true` | 1분마다 복약 건 열기·무응답 인계·요약 푸시·사진 정리 |
+| `EXPO_PUSH_ENABLED` | `false` | 보호자 푸시 실제 발송. 끄면 로그만 남긴다 |
+| `DEMO_MODE` | `false` | 시연 트리거 `POST /api/v1/dev/dose-events` (데모 가족만). 심사용 서버에서만 켠다 |
+
+API 문서는 서버를 띄운 뒤 `/docs` 에서도 볼 수 있다.
+
+## 실행 (Docker Compose)
 
 ```bash
 cp .env.example .env

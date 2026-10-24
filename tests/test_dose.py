@@ -484,3 +484,19 @@ def test_dev_trigger_in_demo_family(client, settings, reader):
     res = client.post("/api/v1/dev/dose-events", json={"slot_id": sat["id"]}, headers=f.e)
     assert res.status_code == 422
     assert client.get("/api/v1/me", headers=f.e).json()["family"]["is_demo"] is True
+
+
+def test_stuck_reading_state_recovers(client, fam, reader):
+    from app.models import DoseEvent
+
+    at(23, 8, 5)
+    eid = event_id(client, fam, "morning")
+    reader.states = {"r0c4": "unclear"}
+    assert upload(client, fam, eid).json()["result"] == "retake"
+    with client.app.state.sessionmaker() as db:
+        db.get(DoseEvent, eid).state = "reading"  # 판독 중 서버가 죽은 상황
+        db.commit()
+    res = upload(client, fam, eid)
+    assert res.status_code == 409 and res.json()["error"]["code"] == "reading_in_progress"
+    at(23, 8, 8)
+    assert today(client, fam.e)["items"][0]["state"] == "asked"
