@@ -40,6 +40,7 @@ def test_run_with_mock_and_skips_unavailable(tmp_path, capsys, monkeypatch):
     assert "mock (모의)" in out
     assert "건너뛴 판독기" in out and "`claude`" in out and "`ollama`" in out
     assert len(list(tmp_path.glob("*-cells.csv"))) == 1
+    assert len(list(tmp_path.glob("*-calls.csv"))) == 1
 
 
 def _write_labels(tmp_path, cells, status="confirmed"):

@@ -44,7 +44,9 @@ class Settings(BaseSettings):
 
     # OpenAI 판독기 (정확도 비교용, T-AI1). 모델은 검증 시점에 다시 정한다
     openai_api_key: str | None = None
-    openai_model: str = "gpt-5.4-mini"
+    openai_model: str = "gpt-6-luna"
+    # 추론 강도. 비우면 모델 기본값 (gpt-6-luna 는 medium). 지연이 길면 low 로 낮춘다
+    openai_reasoning_effort: str | None = None
 
     ollama_url: str = "http://localhost:11434"
     ollama_model: str = "qwen2.5vl:7b"

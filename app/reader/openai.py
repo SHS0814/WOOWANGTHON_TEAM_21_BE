@@ -55,10 +55,13 @@ class OpenAIReader:
         model: str,
         timeout_s: float = 60.0,
         transport: httpx.BaseTransport | None = None,
+        reasoning_effort: str | None = None,
     ) -> None:
         if not api_key:
             raise ReaderUnavailable("OPENAI_API_KEY 가 없음")
         self.model = model
+        # None 이면 모델 기본값. 지연을 줄이려면 "low" 등 (모델마다 허용 값이 다르다)
+        self.reasoning_effort = reasoning_effort
         self._client = httpx.Client(
             base_url=OPENAI_URL,
             timeout=timeout_s,
@@ -67,25 +70,41 @@ class OpenAIReader:
         )
 
     def _post(self, body: dict) -> dict:
-        # 429·5xx·연결 오류는 한 번만 다시 시도한다 (ClaudeReader 의 max_retries=1 과 맞춤)
+        """실패는 모두 ReaderError 로 바꾼다 (서버는 판독 애매로 처리, 원칙 5).
+
+        연결 오류·속도 제한(429)·5xx 는 한 번만 다시 시도한다 (ClaudeReader 의 max_retries=1 과 맞춤).
+        시간 초과는 다시 시도하지 않는다 (어르신이 결과를 기다리는 시간이 두 배가 되므로).
+        크레딧 없음(insufficient_quota)도 다시 시도해도 같으므로 바로 실패한다.
+        """
         for attempt in (1, 2):
             try:
                 res = self._client.post("/responses", json=body)
+            except httpx.TimeoutException as e:
+                raise ReaderError("openai timeout") from e
             except httpx.HTTPError as e:
                 if attempt == 1:
                     continue
                 raise ReaderError(f"openai connection error: {type(e).__name__}") from e
-            retryable = res.status_code == 429 or res.status_code >= 500
+            try:
+                data = res.json()
+            except ValueError:
+                data = None
+            error = data.get("error") if isinstance(data, dict) else None
+            error = error if isinstance(error, dict) else {}
+            retryable = (res.status_code == 429 and error.get("code") != "insufficient_quota") or (
+                res.status_code >= 500
+            )
             if retryable and attempt == 1:
                 time.sleep(1.0)
                 continue
             if res.status_code >= 400:
-                try:
-                    msg = res.json().get("error", {}).get("message", "")
-                except ValueError:
-                    msg = ""
-                raise ReaderError(f"openai api error {res.status_code}: {msg}")
-            return res.json()
+                code = f" {error['code']}" if error.get("code") else ""
+                raise ReaderError(
+                    f"openai api error {res.status_code}{code}: {error.get('message', '')}"
+                )
+            if not isinstance(data, dict):
+                raise ReaderError("openai returned a non-json response")
+            return data
         raise AssertionError("unreachable")
 
     def _ask(self, image: bytes, prompt: str, schema: dict, name: str) -> tuple[dict, str, dict]:
@@ -113,6 +132,8 @@ class OpenAIReader:
                 }
             },
         }
+        if self.reasoning_effort:
+            body["reasoning"] = {"effort": self.reasoning_effort}
         started = time.perf_counter()
         res = self._post(body)
         usage = res.get("usage") or {}
@@ -125,15 +146,18 @@ class OpenAIReader:
             reason = (res.get("incomplete_details") or {}).get("reason", res.get("status"))
             raise ReaderError(f"openai status={res.get('status')} ({reason})")
         text = None
-        for item in res.get("output", []):
-            if item.get("type") != "message":
-                continue
-            for part in item.get("content", []):
-                if part.get("type") == "refusal":
-                    raise ReaderError("openai refusal")
-                if part.get("type") == "output_text":
-                    text = part.get("text")
-        if text is None:
+        try:
+            for item in res.get("output") or []:
+                if item.get("type") != "message":
+                    continue
+                for part in item.get("content") or []:
+                    if part.get("type") == "refusal":
+                        raise ReaderError("openai refusal")
+                    if part.get("type") == "output_text":
+                        text = part.get("text")
+        except AttributeError as e:
+            raise ReaderError("openai returned an unexpected response shape") from e
+        if not isinstance(text, str):
             raise ReaderError("openai returned no output_text")
         try:
             return json.loads(text), text, meta
@@ -149,18 +173,18 @@ class OpenAIReader:
                 row_labels=data["row_labels"],
                 col_labels=data["col_labels"],
             )
-        except (KeyError, ValueError) as e:
+            return LayoutProposal(
+                provider=self.provider,
+                model=self.model,
+                is_mock=False,
+                raw_response=raw,
+                layout=layout,
+                suggested_time_of_day=data["suggested_time_of_day"],
+                uncertain=data["uncertain"],
+                **meta,
+            )
+        except (KeyError, TypeError, ValueError) as e:
             raise ReaderError(f"invalid layout from openai: {e}") from e
-        return LayoutProposal(
-            provider=self.provider,
-            model=self.model,
-            is_mock=False,
-            raw_response=raw,
-            layout=layout,
-            suggested_time_of_day=data["suggested_time_of_day"],
-            uncertain=data["uncertain"],
-            **meta,
-        )
 
     def read_cells(self, image: bytes, layout: Layout, purpose: Purpose = "dose") -> CellReadings:
         data, raw, meta = self._ask(

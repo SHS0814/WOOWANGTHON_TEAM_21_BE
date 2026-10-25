@@ -18,7 +18,7 @@ from app.db import ensure_schema, make_engine, make_sessionmaker
 from app.errors import install_error_handlers
 from app.push import ExpoPushSender, PushSender, RecordingPushSender
 from app.ratelimit import SlidingWindow
-from app.reader import Reader, build_reader
+from app.reader import Reader, build_server_reader
 from app.routers import account, dose, handoffs, pairing, photos, pillboxes, summaries
 
 
@@ -56,8 +56,8 @@ def create_app(
     app.state.summary_sent = set()
     # family_id → 다음 복약 사진 1장의 모의 판독 시나리오 (QA, R-018)
     app.state.mock_scenarios = {}
-    app.state.layout_reader = layout_reader or build_reader(settings.reader_layout, settings)
-    app.state.cells_reader = cells_reader or build_reader(settings.reader_cells, settings)
+    app.state.layout_reader = layout_reader or build_server_reader(settings.reader_layout, settings)
+    app.state.cells_reader = cells_reader or build_server_reader(settings.reader_cells, settings)
     app.state.limits = {
         "families": SlidingWindow(10, timedelta(hours=1)),
         "pair_fail": SlidingWindow(

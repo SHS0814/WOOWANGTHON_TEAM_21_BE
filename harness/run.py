@@ -51,13 +51,25 @@ class ReaderResult:
     photos: int = 0
     cost_usd: float = 0.0
     cost_unknown: int = 0  # 토큰 수나 가격을 몰라 비용을 못 센 호출 수
+    # 호출별 지연·토큰·비용 (사진 종류별 비용 추정용, -calls.csv)
+    calls: list[dict] = field(default_factory=list)
 
-    def add_cost(self, meta) -> None:
+    def add_cost(self, meta, photo_id: str = "", kind: str = "cells") -> None:
         cost = call_cost(meta.provider, meta.model, meta.input_tokens, meta.output_tokens)
         if cost is None:
             self.cost_unknown += 1
         else:
             self.cost_usd += cost
+        self.calls.append(
+            {
+                "photo_id": photo_id,
+                "kind": kind,
+                "latency_ms": meta.latency_ms,
+                "input_tokens": meta.input_tokens,
+                "output_tokens": meta.output_tokens,
+                "cost_usd": cost,
+            }
+        )
 
 
 def evaluate(spec: str, reader: Reader, labels: LabelSet, base: Path, check_layout: bool):
@@ -70,7 +82,7 @@ def evaluate(spec: str, reader: Reader, labels: LabelSet, base: Path, check_layo
             try:
                 prop = reader.detect_layout(image)
                 res.is_mock |= prop.is_mock
-                res.add_cost(prop)
+                res.add_cost(prop, photo.id, "layout")
                 res.layout_checked += 1
                 res.layout_matched += (prop.layout.rows, prop.layout.cols) == (
                     layout.rows,
@@ -86,7 +98,7 @@ def evaluate(spec: str, reader: Reader, labels: LabelSet, base: Path, check_layo
             continue
         res.latencies_ms.append((time.perf_counter() - started) * 1000)
         res.is_mock |= readings.is_mock
-        res.add_cost(readings)
+        res.add_cost(readings, photo.id)
         got = readings.by_id()
         for cid, truth in photo.cells.items():
             r = got[cid]
@@ -280,6 +292,13 @@ def main(argv: list[str] | None = None) -> int:
                             c.is_target,
                         ]
                     )
+        with (args.out_dir / f"{stamp}-calls.csv").open("w", newline="", encoding="utf-8") as f:
+            fields = ["photo_id", "kind", "latency_ms", "input_tokens", "output_tokens", "cost_usd"]
+            w = csv.writer(f)
+            w.writerow(["reader", *fields])
+            for r in results:
+                for c in r.calls:
+                    w.writerow([r.spec, *(c[k] for k in fields)])
         meta = [
             {"spec": r.spec, "provider": r.provider, "model": r.model, "is_mock": r.is_mock}
             for r in results
