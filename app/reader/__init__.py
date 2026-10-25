@@ -1,4 +1,4 @@
-"""판독기 선택. spec 형식: "mock", "claude", "claude:<model>", "ollama", "ollama:<model>"."""
+"""판독기 선택. spec 형식: "mock", "claude[:<model>]", "openai[:<model>]", "ollama[:<model>]"."""
 
 from app.config import Settings
 from app.reader.base import (
@@ -34,6 +34,12 @@ def build_reader(spec: str, settings: Settings) -> Reader:
 
         return ClaudeReader(
             settings.anthropic_api_key, model or settings.claude_model, settings.reader_timeout_s
+        )
+    if kind == "openai":
+        from app.reader.openai import OpenAIReader
+
+        return OpenAIReader(
+            settings.openai_api_key, model or settings.openai_model, settings.reader_timeout_s
         )
     if kind == "ollama":
         from app.reader.ollama import OllamaReader

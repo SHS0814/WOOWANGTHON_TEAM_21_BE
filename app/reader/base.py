@@ -1,6 +1,6 @@
 """AI 판독 인터페이스 (backend.md 8장).
 
-구현체: MockReader, ClaudeReader, OllamaReader. 어떤 구현체든 결과에 provider, model,
+구현체: MockReader, ClaudeReader, OpenAIReader, OllamaReader. 어떤 구현체든 결과에 provider, model,
 is_mock, 지연 시간, 원본 응답을 담는다. is_mock=True 결과는 앱에 "모의 결과"로 표시된다.
 """
 
@@ -52,6 +52,9 @@ class ReaderMeta(BaseModel):
     is_mock: bool
     latency_ms: int = 0
     raw_response: str | None = None
+    # 토큰 사용량 (비용 계산용). 판독기가 알려주지 않으면 None
+    input_tokens: int | None = None
+    output_tokens: int | None = None
 
 
 class LayoutProposal(ReaderMeta):

@@ -18,7 +18,7 @@ from app.reader.base import (
     normalize_cells,
     sniff_media_type,
 )
-from app.reader.prompts import CELLS_PROMPT, LAYOUT_PROMPT, cells_schema, layout_schema
+from app.reader.prompts import LAYOUT_PROMPT, cells_prompt, cells_schema, layout_schema
 
 
 class ClaudeReader:
@@ -35,7 +35,7 @@ class ClaudeReader:
         self._client = anthropic.Anthropic(api_key=api_key, timeout=timeout_s, max_retries=1)
         self.model = model
 
-    def _ask(self, image: bytes, prompt: str, schema: dict) -> tuple[dict, str, int]:
+    def _ask(self, image: bytes, prompt: str, schema: dict) -> tuple[dict, str, dict]:
         content = [
             {
                 "type": "image",
@@ -57,19 +57,23 @@ class ClaudeReader:
             )
         except self._anthropic.APIError as e:
             raise ReaderError(f"claude api error: {e}") from e
-        latency_ms = int((time.perf_counter() - started) * 1000)
+        meta = {
+            "latency_ms": int((time.perf_counter() - started) * 1000),
+            "input_tokens": response.usage.input_tokens,
+            "output_tokens": response.usage.output_tokens,
+        }
         if response.stop_reason in ("refusal", "max_tokens"):
             raise ReaderError(f"claude stop_reason={response.stop_reason}")
         text = next((b.text for b in response.content if b.type == "text"), None)
         if text is None:
             raise ReaderError("claude returned no text block")
         try:
-            return json.loads(text), text, latency_ms
+            return json.loads(text), text, meta
         except json.JSONDecodeError as e:
             raise ReaderError("claude returned invalid json") from e
 
     def detect_layout(self, image: bytes) -> LayoutProposal:
-        data, raw, latency_ms = self._ask(image, LAYOUT_PROMPT, layout_schema())
+        data, raw, meta = self._ask(image, LAYOUT_PROMPT, layout_schema())
         try:
             layout = Layout(
                 rows=data["rows"],
@@ -83,22 +87,15 @@ class ClaudeReader:
             provider=self.provider,
             model=self.model,
             is_mock=False,
-            latency_ms=latency_ms,
             raw_response=raw,
+            **meta,
             layout=layout,
             suggested_time_of_day=data["suggested_time_of_day"],
             uncertain=data["uncertain"],
         )
 
     def read_cells(self, image: bytes, layout: Layout, purpose: Purpose = "dose") -> CellReadings:
-        prompt = CELLS_PROMPT.format(
-            rows=layout.rows,
-            cols=layout.cols,
-            row_labels=", ".join(layout.row_labels) or "(없음)",
-            col_labels=", ".join(layout.col_labels) or "(없음)",
-            cell_ids=", ".join(layout.cell_ids()),
-        )
-        data, raw, latency_ms = self._ask(image, prompt, cells_schema(layout.cell_ids()))
+        data, raw, meta = self._ask(image, cells_prompt(layout), cells_schema(layout.cell_ids()))
         cells = [
             CellReading(
                 cell_id=c["cell_id"],
@@ -111,7 +108,7 @@ class ClaudeReader:
             provider=self.provider,
             model=self.model,
             is_mock=False,
-            latency_ms=latency_ms,
             raw_response=raw,
+            **meta,
             cells=normalize_cells(layout, cells),
         )

@@ -35,12 +35,16 @@ class Settings(BaseSettings):
     pair_fail_window_min: int = 10
     consent_text_version: str = "v1"
 
-    # 판독기 선택 (backend.md 8장). "mock" | "claude" | "ollama"
+    # 판독기 선택 (backend.md 8장). "mock" | "claude" | "openai" | "ollama"
     reader_layout: str = "mock"
     reader_cells: str = "mock"
 
     anthropic_api_key: str | None = None
     claude_model: str = "claude-haiku-5-5"
+
+    # OpenAI 판독기 (정확도 비교용, T-AI1). 모델은 검증 시점에 다시 정한다
+    openai_api_key: str | None = None
+    openai_model: str = "gpt-5.4-mini"
 
     ollama_url: str = "http://localhost:11434"
     ollama_model: str = "qwen2.5vl:7b"
@@ -74,7 +78,8 @@ class Settings(BaseSettings):
 
     @property
     def ai_external_transfer(self) -> bool:
-        return "claude" in (self.reader_layout.split(":")[0], self.reader_cells.split(":")[0])
+        kinds = {self.reader_layout.split(":")[0], self.reader_cells.split(":")[0]}
+        return bool(kinds & {"claude", "openai"})
 
     @property
     def reader_is_mock(self) -> bool:

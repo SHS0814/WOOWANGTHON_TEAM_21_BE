@@ -20,12 +20,16 @@ app/
     base.py          Reader 프로토콜, Layout, CellReadings
     mock.py          MockReader (모의, is_mock=true)
     claude.py        ClaudeReader (Anthropic API, structured output)
+    openai.py        OpenAIReader (GPT, 비교 검증용)
     ollama.py        OllamaReader (로컬 모델)
     prompts.py       판독 프롬프트 초안
 harness/             판독 정확도 검증
   labels.py          라벨 형식
   run.py             여러 판독기 비교 → 표
   make_samples.py    합성 샘플 생성기
+  review_sheet.py    라벨 확인 시트(HTML)
+  pricing.py         모델별 토큰 가격
+  README.md          하네스 사용법 (로컬 모델 실행 안내 포함)
   samples/           합성 샘플 이미지와 라벨 (실제 사진 아님)
 tests/
 ```
@@ -54,7 +58,7 @@ uv run ruff check . && uv run ruff format --check .
 
 | 변수 | 기본 | 뜻 |
 |---|---|---|
-| `READER_LAYOUT`, `READER_CELLS` | `mock` | 판독기 (`mock` / `claude[:모델]` / `ollama[:모델]`) |
+| `READER_LAYOUT`, `READER_CELLS` | `mock` | 판독기 (`mock` / `claude[:모델]` / `openai[:모델]` / `ollama[:모델]`) |
 | `PUBLIC_BASE_URL` | (비움) | 앱에 내려주는 사진 URL 앞부분 (Cloudflare Tunnel 주소) |
 | `JOBS_ENABLED` | `true` | 1분마다 복약 건 열기·무응답 인계·요약 푸시·사진 정리 |
 | `EXPO_PUSH_ENABLED` | `false` | 보호자 푸시 실제 발송. 끄면 로그만 남긴다 |
@@ -83,12 +87,13 @@ docker compose --profile ollama up -d   # 로컬 판독 모델까지 (선택, NV
 uv run python -m harness.run --labels harness/samples/labels.json --readers mock
 
 # 실제 사진으로 비교 (키·서버가 없는 판독기는 건너뜀)
-uv run python -m harness.run --labels harness/data/labels.json \
+uv run python -m harness.run --labels harness/data/real/labels.json \
   --readers mock,claude:claude-haiku-5-5,claude:claude-sonnet-5-5,ollama:qwen2.5vl:7b \
   --layout --thresholds 0.7,0.8,0.9 --out-dir harness/results
 ```
 
-- 라벨 형식은 `harness/labels.py` 의 docstring 참고. 사진마다 약통 구조(`layout`)와 칸별 정답(`empty`/`full`)을 적는다
+- 라벨 형식은 `harness/labels.py` 의 docstring 참고. 사진마다 약통 구조(`layout`)와 칸별 정답(`empty`/`full`/`not_visible`)을 적는다
+- 자세한 사용법, 라벨 확인 시트, 로컬 모델(PC) 실행 안내: `harness/README.md`
 - **실사진은 `harness/data/` 에 둔다. 이 폴더와 `harness/results/` 는 커밋하지 않는다** (개인정보)
 - 표의 "약 있는데 빈 칸으로 봄"은 복용으로 잘못 기록될 수 있는 위험 오류다
 - `--thresholds` 는 신뢰도가 기준보다 낮은 판독을 애매로 바꿔서 다시 센다. "정상" 판정 기준을 정하는 데 쓴다

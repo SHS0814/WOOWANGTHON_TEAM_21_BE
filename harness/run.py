@@ -1,11 +1,13 @@
 """판독기 정확도 비교. 같은 라벨 데이터로 여러 판독기를 돌려 칸 단위 정확도, 애매 비율, 지연을 표로 낸다.
 
     uv run python -m harness.run --labels harness/samples/labels.json --readers mock
-    uv run python -m harness.run --labels harness/data/labels.json \\
-        --readers mock,claude:claude-haiku-5-5,claude:claude-sonnet-5-5,ollama:qwen2.5vl:7b \\
+    uv run python -m harness.run --labels harness/data/real/labels.json \\
+        --readers claude:claude-haiku-5-5,claude:claude-sonnet-5-5,openai:gpt-5.4-mini,ollama:qwen2.5vl:7b \\
         --layout --thresholds 0.7,0.8,0.9 --out-dir harness/results
 
 키나 서버가 없는 판독기는 건너뛰고 표 아래에 이유를 적는다.
+라벨에 draft(사용자 확인 전 초안)가 있으면 실행을 거부한다. --allow-draft 로 돌리면 표에 경고를 붙인다.
+not_visible(사진에 안 보이는 칸)은 정확도에서 빼고, 애매로 돌렸는지만 따로 센다.
 """
 
 import argparse
@@ -21,6 +23,7 @@ from pathlib import Path
 from app.config import get_settings
 from app.reader import Reader, ReaderError, ReaderUnavailable, build_reader
 from harness.labels import LabelSet, load_labels
+from harness.pricing import PRICES_AS_OF, call_cost
 
 
 @dataclass
@@ -46,6 +49,15 @@ class ReaderResult:
     layout_checked: int = 0
     layout_matched: int = 0
     photos: int = 0
+    cost_usd: float = 0.0
+    cost_unknown: int = 0  # 토큰 수나 가격을 몰라 비용을 못 센 호출 수
+
+    def add_cost(self, meta) -> None:
+        cost = call_cost(meta.provider, meta.model, meta.input_tokens, meta.output_tokens)
+        if cost is None:
+            self.cost_unknown += 1
+        else:
+            self.cost_usd += cost
 
 
 def evaluate(spec: str, reader: Reader, labels: LabelSet, base: Path, check_layout: bool):
@@ -58,6 +70,7 @@ def evaluate(spec: str, reader: Reader, labels: LabelSet, base: Path, check_layo
             try:
                 prop = reader.detect_layout(image)
                 res.is_mock |= prop.is_mock
+                res.add_cost(prop)
                 res.layout_checked += 1
                 res.layout_matched += (prop.layout.rows, prop.layout.cols) == (
                     layout.rows,
@@ -73,6 +86,7 @@ def evaluate(spec: str, reader: Reader, labels: LabelSet, base: Path, check_layo
             continue
         res.latencies_ms.append((time.perf_counter() - started) * 1000)
         res.is_mock |= readings.is_mock
+        res.add_cost(readings)
         got = readings.by_id()
         for cid, truth in photo.cells.items():
             r = got[cid]
@@ -97,7 +111,9 @@ def _apply_threshold(rows: list[CellRow], th: float | None) -> list[str]:
 
 def summarize(res: ReaderResult, th: float | None = None) -> dict:
     states = _apply_threshold(res.rows, th)
-    pairs = list(zip(res.rows, states))
+    # 사진에 안 보이는 칸은 정확도에서 빼고 따로 센다
+    hidden = [s for r, s in zip(res.rows, states) if r.truth == "not_visible"]
+    pairs = [(r, s) for r, s in zip(res.rows, states) if r.truth != "not_visible"]
     total = len(pairs)
     correct = sum(s == r.truth for r, s in pairs)
     unclear = sum(s == "unclear" for _, s in pairs)
@@ -120,11 +136,22 @@ def summarize(res: ReaderResult, th: float | None = None) -> dict:
         "false_full": _pct(sum(s == "full" for s in truth_empty), len(truth_empty)),
         "target_acc": _pct(sum(s == r.truth for r, s in target), len(target)),
         "photo_all_ok": _pct(sum(by_photo.values()), len(by_photo)),
+        "hidden_cells": len(hidden),
+        "hidden_unclear": _pct(sum(s == "unclear" for s in hidden), len(hidden)),
         "layout_ok": _pct(res.layout_matched, res.layout_checked),
         "p50_ms": "-" if not lat else f"{statistics.median(lat):.0f}",
         "p95_ms": "-" if not lat else f"{lat[min(len(lat) - 1, int(0.95 * len(lat)))]:.0f}",
+        "cost_per_photo": _cost(res),
         "errors": len(res.errors),
     }
+
+
+def _cost(res: ReaderResult) -> str:
+    if res.photos == 0:
+        return "-"
+    if res.cost_unknown:
+        return f"모름({res.cost_unknown}회)"
+    return f"${res.cost_usd / res.photos:.5f}"
 
 
 COLUMNS = [
@@ -139,9 +166,12 @@ COLUMNS = [
     ("false_full", "빈 칸인데 약 있다고 봄"),
     ("target_acc", "대상 칸 정확도"),
     ("photo_all_ok", "사진 전체 정답"),
+    ("hidden_cells", "안 보이는 칸"),
+    ("hidden_unclear", "안 보이는 칸을 애매로"),
     ("layout_ok", "구조 인식"),
     ("p50_ms", "지연 p50(ms)"),
     ("p95_ms", "지연 p95(ms)"),
+    ("cost_per_photo", "사진 1장당 비용"),
     ("errors", "오류"),
 ]
 
@@ -157,14 +187,29 @@ def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawTextHelpFormatter)
     ap.add_argument("--labels", type=Path, required=True)
     ap.add_argument(
-        "--readers", default="mock", help="쉼표로 구분: mock,claude[:모델],ollama[:모델]"
+        "--readers",
+        default="mock",
+        help="쉼표로 구분: mock,claude[:모델],openai[:모델],ollama[:모델]",
     )
     ap.add_argument("--layout", action="store_true", help="detect_layout 도 검사")
     ap.add_argument("--thresholds", default="", help="신뢰도 기준 후보 (예: 0.7,0.9)")
     ap.add_argument("--out-dir", type=Path, help="결과 표(md)와 칸별 상세(csv)를 저장할 곳")
+    ap.add_argument(
+        "--allow-draft",
+        action="store_true",
+        help="확인 전 초안 라벨로도 실행 (동작 확인용. 숫자를 결과로 쓰지 않는다)",
+    )
     args = ap.parse_args(argv)
 
     labels, base = load_labels(args.labels)
+    drafts = labels.drafts()
+    if drafts and not args.allow_draft:
+        print(
+            f"라벨 {len(drafts)}장이 사용자 확인 전 초안(draft)이다. 확인 시트에서 확인한 라벨로 "
+            "다시 실행해라. 동작 확인만 하려면 --allow-draft",
+            file=sys.stderr,
+        )
+        return 2
     settings = get_settings()
     thresholds = [float(t) for t in args.thresholds.split(",") if t.strip()]
 
@@ -183,14 +228,24 @@ def main(argv: list[str] | None = None) -> int:
     for th in thresholds:
         table += [summarize(r, th) for r in results]
 
-    lines = [
-        f"# 판독 정확도 ({datetime.now().isoformat(timespec='seconds')})",
-        "",
+    lines = [f"# 판독 정확도 ({datetime.now().isoformat(timespec='seconds')})", ""]
+    if drafts:
+        lines += [
+            f"> ⚠ 사용자 확인 전 초안 라벨 {len(drafts)}장이 포함됐다. **이 표의 숫자는 결과로 쓰지 않는다.**",
+            "",
+        ]
+    lines += [
         f"- 라벨: `{args.labels}` (사진 {len(labels.photos)}장)",
         (
             "- 칸 정확도: 애매(unclear)도 틀린 것으로 셈. "
             "'약 있는데 빈 칸으로 봄'은 복용으로 잘못 기록될 수 있는 위험 오류다 (원칙 5)"
         ),
+        (
+            "- '안 보이는 칸'은 사진에 없거나 잘린 칸(not_visible)이다. 정확도에서 빼고, "
+            "판독기가 애매로 돌린 비율만 따로 낸다 (나머지는 보이지 않는 칸을 추측한 것)"
+        ),
+        f"- 비용은 판독기가 알려준 토큰 수 × `harness/pricing.py` 가격({PRICES_AS_OF} 기준)",
+        "- 지연은 판독 호출 1번의 왕복 시간이다. p95가 20초 이상이면 비동기 판독을 다시 검토 (R-010 9번)",
         "- (모의) 표시 판독기는 실제 AI가 아니다",
         "",
         to_markdown(table) if table else "(실행한 판독기 없음)",
