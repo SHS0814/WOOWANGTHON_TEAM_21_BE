@@ -113,6 +113,9 @@ def _elder_status(event) -> str:
         return "waiting"
     if event.outcome == "taken":
         return "recorded"
+    # 인계 뒤 늦게 온 정상 사진: 어르신 기준으로는 기록됨 (R-021 Q-004)
+    if event.outcome in (None, "acknowledged") and event.taken_at is not None:
+        return "recorded"
     return "no_record"
 
 
@@ -129,7 +132,13 @@ def handoff_brief(h) -> dict | None:
 
 
 def event_out(
-    db: Session, settings: Settings, url_base: str, event: DoseEvent, *, guardian: bool
+    db: Session,
+    settings: Settings,
+    url_base: str,
+    event: DoseEvent,
+    *,
+    guardian: bool,
+    carried_over: bool = False,
 ) -> dict:
     slot = db.get(ScheduleSlot, event.slot_id)
     photos = db.scalars(
@@ -175,6 +184,8 @@ def event_out(
         "photos": [photo_out(settings, url_base, p) for p in photos],
         "is_mock": any(r.is_mock for r in readings),
         "is_simulated": event.is_simulated,
+        "carried_over": carried_over,
+        "reminded_at": iso(event.reminded_at) if guardian else None,
         "latest_reading": reading_out(db, settings, url_base, latest)
         if guardian and latest
         else None,

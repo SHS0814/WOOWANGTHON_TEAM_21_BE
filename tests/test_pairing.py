@@ -169,3 +169,26 @@ def test_settings_get_put(client):
     assert client.get("/api/v1/me", headers=f.e).json()["device"]["display_name"] == "엄마"
     res = client.put("/api/v1/settings", json={"summary_push_time": "25:00"}, headers=f.g)
     assert res.status_code == 422
+
+
+def test_blank_names_are_rejected_after_strip(client):
+    """R-021 Q-002: 공백뿐인 이름은 strip 뒤 길이 검증에서 걸린다. 앞뒤 공백은 지워서 저장."""
+    for body in (
+        {"elder_display_name": "   ", "guardian_display_name": "민수"},
+        {"elder_display_name": "어머니", "guardian_display_name": " \t "},
+    ):
+        res = client.post("/api/v1/families", json=body)
+        assert res.status_code == 422 and res.json()["error"]["code"] == "validation_error"
+    res = client.post(
+        "/api/v1/families",
+        json={"elder_display_name": "  어머니 ", "guardian_display_name": " 민수"},
+    )
+    assert res.status_code == 201 and res.json()["device"]["display_name"] == "민수"
+    f = Family(client)
+    code = client.post("/api/v1/pairing-codes", json={"kind": "guardian"}, headers=f.g).json()
+    res = client.post("/api/v1/pair", json={"code": code["code"], "display_name": "   "})
+    assert res.status_code == 422
+    res = client.put("/api/v1/settings", json={"elder_display_name": "  "}, headers=f.g)
+    assert res.status_code == 422
+    res = client.put("/api/v1/settings", json={"elder_display_name": " 엄마 "}, headers=f.g)
+    assert res.json()["elder_display_name"] == "엄마"

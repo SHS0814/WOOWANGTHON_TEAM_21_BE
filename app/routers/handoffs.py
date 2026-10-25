@@ -115,7 +115,12 @@ def _resolve(event: DoseEvent, outcome: str, device_id: str, now) -> None:
     event.decided_by_device_id = device_id
     event.resolved_at = now
     event.retake_deadline_at = None
-    event.taken_at = now if outcome == "taken" else None
+    # 늦게 온 정상 사진이 있으면 그 촬영 시각을 기록 시각으로 둔다 (R-021 Q-004).
+    # acknowledged 는 기록을 지우지 않는다. not_taken 은 보호자가 안 드셨다고 판정한 것
+    if outcome == "taken":
+        event.taken_at = event.taken_at or now
+    elif outcome == "not_taken":
+        event.taken_at = None
 
 
 def _refill_answer(

@@ -14,19 +14,19 @@ from app.deps import Auth, auth_guardian, auth_preconsent, client_ip, get_db, ge
 from app.errors import ApiError, validation
 from app.models import Device, Family, PairingCode
 from app.push import notify_guardians
+from app.schemas import DisplayName
 from app.security import hash_secret, new_pair_code, new_short_code, new_token
 from app.serializers import active_guardians, device_out, person
 from app.timeutil import iso
 
 router = APIRouter()
 
-Name = Field(min_length=1, max_length=20)
 Platform = Literal["android", "ios"] | None
 
 
 class FamilyIn(BaseModel):
-    elder_display_name: str = Name
-    guardian_display_name: str = Name
+    elder_display_name: DisplayName
+    guardian_display_name: DisplayName
     platform: Platform = None
     is_demo: bool = False
 
@@ -44,14 +44,14 @@ def create_family(
     limiter.hit(client_ip(request), now)
     if body.is_demo and not settings.demo_mode:
         raise validation("is_demo", "DEMO_MODE 가 꺼진 서버에서는 만들 수 없음")
-    family = Family(elder_display_name=body.elder_display_name.strip(), is_demo=body.is_demo)
+    family = Family(elder_display_name=body.elder_display_name, is_demo=body.is_demo)
     db.add(family)
     db.flush()
     token = new_token()
     device = Device(
         family_id=family.id,
         role="guardian",
-        display_name=body.guardian_display_name.strip(),
+        display_name=body.guardian_display_name,
         platform=body.platform,
         token_hash=hash_secret(token),
     )
@@ -129,7 +129,7 @@ def create_pairing_code(
 class PairIn(BaseModel):
     code: str | None = Field(default=None, max_length=64)
     short_code: str | None = Field(default=None, pattern=r"^\d{6}$")
-    display_name: str | None = Field(default=None, min_length=1, max_length=20)
+    display_name: DisplayName | None = None
     platform: Platform = None
 
     @model_validator(mode="after")
@@ -197,7 +197,7 @@ def pair(
         device = Device(
             family_id=family.id,
             role="guardian",
-            display_name=body.display_name.strip(),
+            display_name=body.display_name,
             platform=body.platform,
             token_hash=hash_secret(token),
         )

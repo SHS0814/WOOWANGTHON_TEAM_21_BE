@@ -47,6 +47,8 @@ def today_events(
     now = clock.now()
     today = kst_date(now)
     events = _events_for(db, auth.family.id, today, today)
+    # 전날 끝나지 않은 건을 앞쪽에 함께 보여준다 (R-021 Q-007)
+    carried = ds.carried_over_events(db, auth.family.id, now)
     url = base_url(request, settings)
     next_event = next((e for e in events if e.state in ("scheduled", "asked")), None)
     open_count = None
@@ -58,7 +60,11 @@ def today_events(
         )
     return {
         "date": today.isoformat(),
-        "items": [event_out(db, settings, url, e, guardian=auth.is_guardian) for e in events],
+        "items": [
+            event_out(db, settings, url, e, guardian=auth.is_guardian, carried_over=True)
+            for e in carried
+        ]
+        + [event_out(db, settings, url, e, guardian=auth.is_guardian) for e in events],
         "open_handoff_count": open_count,
         "next_event": None
         if next_event is None
@@ -202,6 +208,17 @@ def simulate_dose_event(
     event = db.scalar(
         select(DoseEvent).where(DoseEvent.slot_id == slot.id, DoseEvent.date == today.isoformat())
     )
+    if event is None:
+        # 오늘 그 시각이 지난 뒤에 저장한 칸은 오늘 건이 없다 (R-021 Q-001). 시연은 열 수 있게 만든다
+        event = DoseEvent(
+            family_id=auth.family.id,
+            slot_id=slot.id,
+            date=today.isoformat(),
+            scheduled_at=now,
+            state="scheduled",
+        )
+        db.add(event)
+        db.flush()
     if event.state != "scheduled":
         raise ApiError(409, "event_already_started", "오늘 그 칸의 복약 건이 이미 진행됨")
     event.scheduled_at = now

@@ -44,7 +44,12 @@ PUSH_BODY = {
 
 
 def sync_events(db: Session, family_id: str, now: datetime) -> list[DoseEvent]:
-    """오늘 일정 중 아직 복약 건이 없는 칸의 건을 만든다. 이미 있는 건은 그대로 둔다."""
+    """오늘 일정 중 아직 복약 건이 없는 칸의 건을 만든다. 이미 있는 건은 그대로 둔다.
+
+    오늘 그 시각이 지난 뒤에 만든(저장한) 일정 칸은 오늘 건을 만들지 않는다. 어르신에게
+    물어본 적이 없으므로 무응답 인계 대상이 아니다 (R-021 Q-001). 그 전에 있던 칸은 서버가
+    늦게 돌았어도 만든다 (어르신 폰 로컬 알림이 이미 물어봤을 수 있음).
+    """
     today = kst_date(now)
     slots = [s for s in active_slots(db, family_id) if s.weekday == today.weekday()]
     existing = set(
@@ -56,13 +61,14 @@ def sync_events(db: Session, family_id: str, now: datetime) -> list[DoseEvent]:
     )
     created = []
     for slot in slots:
-        if slot.id in existing:
+        scheduled_at = at_kst(today, slot.dose_time)
+        if slot.id in existing or slot.created_at > scheduled_at:
             continue
         event = DoseEvent(
             family_id=family_id,
             slot_id=slot.id,
             date=today.isoformat(),
-            scheduled_at=at_kst(today, slot.dose_time),
+            scheduled_at=scheduled_at,
             state="scheduled",
         )
         try:
@@ -72,6 +78,45 @@ def sync_events(db: Session, family_id: str, now: datetime) -> list[DoseEvent]:
             continue
         created.append(event)
     return created
+
+
+CARRY_OVER_WINDOW = timedelta(hours=6)
+
+
+def carried_over_events(db: Session, family_id: str, now: datetime) -> list[DoseEvent]:
+    """전날 건 중 아직 끝나지 않은 건 (R-021 Q-007). 예정 시각 후 6시간 안인 것만.
+
+    끝나지 않은 건: asked·retake_requested·reminded, 또는 사진 없이 무응답으로 인계된 건.
+    자정을 넘긴 취침 약도 어르신이 사진을 올릴 수 있게 "오늘" 목록에 함께 보여준다.
+    자정 뒤에 찍어 기록된 건도 남겨 둔다. 올리자마자 목록에서 빠지면 E8 에 "아직 기록이
+    없어요"가 보여 이중 복용을 부를 수 있다 (Q-004 와 같은 이유).
+    """
+    yesterday = (kst_date(now) - timedelta(days=1)).isoformat()
+    candidates = db.scalars(
+        select(DoseEvent)
+        .where(
+            DoseEvent.family_id == family_id,
+            DoseEvent.date == yesterday,
+            DoseEvent.scheduled_at > now - CARRY_OVER_WINDOW,
+            DoseEvent.state.in_(("handed_off", "done", *OPEN_STATES)),
+        )
+        .order_by(DoseEvent.scheduled_at)
+    ).all()
+    today = kst_date(now)
+    out = []
+    for e in candidates:
+        if e.taken_at is not None and kst_date(e.taken_at) == today:
+            out.append(e)  # 자정 뒤에 찍어 기록된 건
+            continue
+        if e.state == "done":
+            continue
+        if e.state == "handed_off":
+            h = open_bound_handoff(db, e.id)
+            has_photo = db.scalar(select(Photo.id).where(Photo.dose_event_id == e.id).limit(1))
+            if h is None or h.reason != "no_response" or has_photo is not None:
+                continue
+        out.append(e)
+    return out
 
 
 def handoff_deadline(settings: Settings, event: DoseEvent) -> datetime:
@@ -303,7 +348,10 @@ def process_photo(
 
     if kind == "normal":
         if late_handoff is not None:
-            late_handoff.late_photo = True  # 정상이어도 인계는 열어 둔다 (R-010 4번)
+            # 정상이어도 인계는 열어 두고 판정은 보호자가 한다 (R-010 4번). 어르신에게는
+            # "기록해 뒀어요"라고 했으므로 E8 에서도 기록으로 보이게 촬영 시각을 남긴다 (R-021 Q-004)
+            late_handoff.late_photo = True
+            event.taken_at = photo.taken_at
         else:
             event.state = "done"
             event.outcome = "taken"
@@ -316,8 +364,11 @@ def process_photo(
     if kind == "double_suspected":
         return handoff("double_suspected", reading)
 
+    # 다시 찍어 달라는 요청은 종류(애매 재촬영, 칸 그대로 안내)와 관계없이 건당 1회 (R-021 Q-005)
+    asked_again = event.retake_count >= 1 or event.reminded_at is not None
+
     if kind == "unclear":
-        if late or late_handoff is not None or event.retake_count >= 1:
+        if late or late_handoff is not None or asked_again:
             return handoff("unclear", reading)
         event.state = "retake_requested"
         event.retake_count += 1
@@ -327,7 +378,7 @@ def process_photo(
     # unchanged (칸 그대로): R-009 설정, C3(+30분 이내에만 안내)
     if (
         family.unchanged_mode == "remind_then_retake"
-        and event.reminded_at is None
+        and not asked_again
         and not late
         and late_handoff is None
     ):

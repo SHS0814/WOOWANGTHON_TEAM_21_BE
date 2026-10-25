@@ -12,6 +12,7 @@ from app.config import Settings
 from app.deps import Auth, auth_guardian, auth_preconsent, get_db, get_settings
 from app.errors import ApiError, not_found
 from app.models import Device, Pillbox, ScheduleSlot
+from app.schemas import DisplayName
 from app.serializers import active_guardians, device_out, person
 
 router = APIRouter()
@@ -98,7 +99,7 @@ def set_push_token(
 
 
 class SettingsIn(BaseModel):
-    elder_display_name: str | None = Field(default=None, min_length=1, max_length=20)
+    elder_display_name: DisplayName | None = None
     summary_push_enabled: bool | None = None
     summary_push_time: str | None = Field(default=None, pattern=r"^([01]\d|2[0-3]):[0-5]\d$")
     photo_retention_days: int | None = Field(default=None, ge=1, le=365)
@@ -126,7 +127,7 @@ def put_family_settings(
     body: SettingsIn, auth: Auth = Depends(auth_guardian), db: Session = Depends(get_db)
 ):
     for key, value in body.model_dump(exclude_none=True).items():
-        setattr(auth.family, key, value.strip() if isinstance(value, str) else value)
+        setattr(auth.family, key, value)
     if body.elder_display_name is not None:
         # 어르신 기기의 표시 이름은 가족 호칭을 따른다
         for d in db.scalars(
