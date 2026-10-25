@@ -28,7 +28,36 @@ def device_out(device: Device, me_id: str | None = None) -> dict:
         "consent_at": iso(device.consent_at),
         "last_seen_at": iso(device.last_seen_at),
         "is_me": device.id == me_id,
+        "notification_status": notification_status_out(device),
     }
+
+
+def notification_ready(device: Device) -> bool:
+    return bool(device.notifications_allowed) and device.exact_alarm_allowed is not False
+
+
+def notification_status_out(device: Device) -> dict | None:
+    if device.notification_status_at is None:
+        return None
+    return {
+        "notifications_allowed": device.notifications_allowed,
+        "exact_alarm_allowed": device.exact_alarm_allowed,
+        "ready": notification_ready(device),
+        "reported_at": iso(device.notification_status_at),
+    }
+
+
+def elder_notification_warning(db: Session, family_id: str) -> bool:
+    """보고한 어르신 기기 중 알림이 준비되지 않은 것이 있으면 True (R-032)."""
+    elders = db.scalars(
+        select(Device).where(
+            Device.family_id == family_id,
+            Device.role == "elder",
+            Device.revoked_at.is_(None),
+            Device.notification_status_at.is_not(None),
+        )
+    )
+    return any(not notification_ready(d) for d in elders)
 
 
 def person(device: Device | None) -> dict | None:

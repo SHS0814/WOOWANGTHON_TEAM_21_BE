@@ -46,6 +46,10 @@ class Device(Base):
     consent_text_version: Mapped[str | None] = mapped_column(String(16), nullable=True)
     revoked_at: Mapped[datetime | None] = mapped_column(UTCDateTime, nullable=True)
     last_seen_at: Mapped[datetime | None] = mapped_column(UTCDateTime, nullable=True)
+    # 알림 준비 상태 (R-032). 보고 전이면 notification_status_at 이 None
+    notifications_allowed: Mapped[bool | None] = mapped_column(Boolean, nullable=True)
+    exact_alarm_allowed: Mapped[bool | None] = mapped_column(Boolean, nullable=True)
+    notification_status_at: Mapped[datetime | None] = mapped_column(UTCDateTime, nullable=True)
 
 
 class PairingCode(Base):

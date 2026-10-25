@@ -72,6 +72,25 @@ def make_sessionmaker(engine: Engine) -> sessionmaker[Session]:
     return factory
 
 
+def _add_missing_columns(engine: Engine) -> None:
+    """이미 있는 테이블에 새로 생긴 nullable 열을 붙인다 (예: R-032 devices 알림 상태)."""
+    insp = inspect(engine)
+    with engine.begin() as conn:
+        for table in Base.metadata.tables.values():
+            have = {c["name"] for c in insp.get_columns(table.name)}
+            for col in table.columns:
+                if col.name in have:
+                    continue
+                if not col.nullable:
+                    log.error(
+                        "missing NOT NULL column %s.%s; recreate or migrate", table.name, col.name
+                    )
+                    continue
+                ddl = col.type.compile(dialect=engine.dialect)
+                conn.execute(text(f"ALTER TABLE {table.name} ADD COLUMN {col.name} {ddl}"))
+                log.warning("added column %s.%s", table.name, col.name)
+
+
 def ensure_schema(engine: Engine) -> None:
     """테이블과 인덱스를 만든다. 이미 있는 DB에도 새 유니크 인덱스를 붙인다.
 
@@ -79,6 +98,7 @@ def ensure_schema(engine: Engine) -> None:
     중복 행(열린 인계, 같은 칸·날 복약 건)을 정리한다.
     """
     Base.metadata.create_all(engine)
+    _add_missing_columns(engine)
     existing = {i["name"] for i in inspect(engine).get_indexes("handoffs")}
     with engine.begin() as conn:
         if "uq_open_handoff_event_reason" not in existing:

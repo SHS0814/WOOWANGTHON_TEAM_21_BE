@@ -13,7 +13,7 @@ from app.deps import Auth, auth_guardian, auth_preconsent, get_db, get_settings
 from app.errors import ApiError, not_found
 from app.models import Device, Pillbox, ScheduleSlot
 from app.schemas import DisplayName
-from app.serializers import active_guardians, device_out, person
+from app.serializers import active_guardians, device_out, notification_status_out, person
 
 router = APIRouter()
 
@@ -96,6 +96,23 @@ def set_push_token(
     auth.device.push_token = body.push_token
     db.commit()
     return Response(status_code=204)
+
+
+class NotificationStatusIn(BaseModel):
+    notifications_allowed: bool
+    exact_alarm_allowed: bool | None  # 키는 필수, 해당 없으면 null
+
+
+@router.put("/devices/me/notification-status")
+def set_notification_status(
+    body: NotificationStatusIn, auth: Auth = Depends(auth_preconsent), db: Session = Depends(get_db)
+):
+    d = auth.device
+    d.notifications_allowed = body.notifications_allowed
+    d.exact_alarm_allowed = body.exact_alarm_allowed
+    d.notification_status_at = clock.now()
+    db.commit()
+    return notification_status_out(d)
 
 
 class SettingsIn(BaseModel):

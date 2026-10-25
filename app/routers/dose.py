@@ -13,7 +13,7 @@ from app.config import Settings
 from app.deps import Auth, auth_any, auth_elder, auth_guardian, get_db, get_settings
 from app.errors import ApiError, not_found, validation
 from app.models import DoseEvent, Handoff, Photo, ScheduleSlot
-from app.serializers import base_url, event_out
+from app.serializers import base_url, elder_notification_warning, event_out
 from app.services import dose as ds
 from app.services import readings as rs
 from app.storage import load
@@ -66,6 +66,9 @@ def today_events(
         ]
         + [event_out(db, settings, url, e, guardian=auth.is_guardian) for e in events],
         "open_handoff_count": open_count,
+        "elder_notification_warning": elder_notification_warning(db, auth.family.id)
+        if auth.is_guardian
+        else None,
         "next_event": None
         if next_event is None
         else {

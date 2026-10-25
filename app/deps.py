@@ -50,7 +50,7 @@ def _authenticate(request: Request, db: Session) -> Auth:
 
 
 def auth_preconsent(request: Request, db: Session = Depends(get_db)) -> Auth:
-    """어르신 동의 전에도 쓸 수 있는 API (GET /me, POST /consent, push-token)."""
+    """어르신 동의 전에도 쓸 수 있는 API (GET /me, POST /consent, push-token, notification-status)."""
     return _authenticate(request, db)
 
 
