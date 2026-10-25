@@ -2,7 +2,8 @@
 
 확인한 날짜와 출처를 함께 적는다. 비교 실행(2단계) 전에 다시 확인하고 고친다.
 - Anthropic: Claude API 문서 모델 표 (2026-10-25 확인). Haiku 5.5 는 입력 10만 토큰 이하 요금
-- OpenAI: https://developers.openai.com/api/docs/pricing (2026-10-25 확인)
+- OpenAI: https://developers.openai.com/api/docs/pricing 와 모델별 페이지 (2026-10-25 확인).
+  gpt-6-luna·gpt-6.1-sol·gpt-5.4-mini 는 이미지 입력·Responses API·structured outputs 지원 확인
 로컬(ollama)과 모의(mock) 판독기는 API 비용이 0 이다. 표에 없는 모델은 비용을 "-" 로 낸다.
 """
 

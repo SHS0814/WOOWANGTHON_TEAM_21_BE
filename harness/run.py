@@ -2,7 +2,7 @@
 
     uv run python -m harness.run --labels harness/samples/labels.json --readers mock
     uv run python -m harness.run --labels harness/data/real/labels.json \\
-        --readers claude:claude-haiku-5-5,claude:claude-sonnet-5-5,openai:gpt-5.4-mini,ollama:qwen2.5vl:7b \\
+        --readers claude:claude-haiku-5-5,claude:claude-sonnet-5-5,openai:gpt-6-luna,ollama:qwen2.5vl:7b \\
         --layout --thresholds 0.7,0.8,0.9 --out-dir harness/results
 
 키나 서버가 없는 판독기는 건너뛰고 표 아래에 이유를 적는다.

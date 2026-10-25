@@ -20,7 +20,7 @@ app/
     base.py          Reader 프로토콜, Layout, CellReadings
     mock.py          MockReader (모의, is_mock=true)
     claude.py        ClaudeReader (Anthropic API, structured output)
-    openai.py        OpenAIReader (GPT, 비교 검증용)
+    openai.py        OpenAIReader (GPT. 실제 판독 기본 후보, R-037)
     ollama.py        OllamaReader (로컬 모델)
     prompts.py       판독 프롬프트 초안
 harness/             판독 정확도 검증
@@ -59,6 +59,8 @@ uv run ruff check . && uv run ruff format --check .
 | 변수 | 기본 | 뜻 |
 |---|---|---|
 | `READER_LAYOUT`, `READER_CELLS` | `mock` | 판독기 (`mock` / `claude[:모델]` / `openai[:모델]` / `ollama[:모델]`) |
+| `OPENAI_API_KEY`, `OPENAI_MODEL` | (비움), `gpt-6-luna` | GPT 판독기. 키가 없으면 서버는 뜨고 모든 판독이 애매(재촬영 → 인계)로 처리된다 |
+| `OPENAI_REASONING_EFFORT` | (비움) | GPT 추론 강도. 비우면 모델 기본값. 낮추면 빨라지지만 시험에서 '약 있는데 빈 칸' 쪽 불일치가 늘었다 |
 | `PUBLIC_BASE_URL` | (비움) | 앱에 내려주는 사진 URL 앞부분 (Cloudflare Tunnel 주소) |
 | `JOBS_ENABLED` | `true` | 1분마다 복약 건 열기·무응답 인계·요약 푸시·사진 정리 |
 | `EXPO_PUSH_ENABLED` | `false` | 보호자 푸시 실제 발송. 끄면 로그만 남긴다 |

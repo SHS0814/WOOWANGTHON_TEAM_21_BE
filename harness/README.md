@@ -61,11 +61,12 @@ harness/
 uv sync --extra claude          # anthropic SDK (OpenAI는 httpx 직접 호출이라 추가 설치 없음)
 # .env: ANTHROPIC_API_KEY=..., OPENAI_API_KEY=...
 uv run python -m harness.run --labels harness/data/real/labels.json \
-  --readers claude:claude-haiku-5-5,claude:claude-sonnet-5-5,openai:gpt-5.4-mini,openai:gpt-5.4-nano \
+  --readers openai:gpt-6-luna,openai:gpt-6.1-sol,claude:claude-haiku-5-5,claude:claude-sonnet-5-5 \
   --thresholds 0.7,0.8,0.9 --out-dir harness/results
 ```
 
-모델 이름과 가격은 실행 직전에 다시 확인하고 `pricing.py`를 고친다.
+모델 이름과 가격은 실행 직전에 다시 확인하고 `pricing.py`를 고친다. 추론 강도는 `OPENAI_REASONING_EFFORT`(비우면 모델 기본값)로 바꿀 수 있다.
+호출별 지연·토큰·비용은 `--out-dir`의 `-calls.csv`에 남는다 (사진 종류별 비용 추정용).
 
 ## 로컬 모델 실행 (사용자 PC, GTX 1660 Super 6GB)
 
