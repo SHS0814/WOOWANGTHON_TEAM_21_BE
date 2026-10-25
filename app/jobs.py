@@ -7,6 +7,7 @@
 
 import asyncio
 import logging
+import time
 from datetime import datetime, timedelta
 
 from fastapi import FastAPI
@@ -102,10 +103,67 @@ def run_once(app: FastAPI, now: datetime | None = None) -> None:
             db.commit()
 
 
+class LoopTiming:
+    """1분 작업의 실제 실행 간격·지연을 잰다 (R-021 Q-008).
+
+    벽시계(time.time)와 단조 시계(time.monotonic)를 같이 본다. macOS·Linux 의 단조 시계는
+    시스템이 잠든 동안 멈추므로, 벽시계 간격이 단조 시계 간격보다 크게 길면 PC 가 잠들었던 것이다.
+    """
+
+    def __init__(self, interval_s: float, summary_every: int = 60) -> None:
+        self.interval_s = interval_s
+        self.summary_every = summary_every
+        self.prev_wall: float | None = None
+        self.prev_mono: float | None = None
+        self.runs = 0
+        self.max_interval = 0.0
+        self.max_duration = 0.0
+
+    def started(self, wall: float, mono: float) -> str | None:
+        """회차 시작. 늦었으면 경고 문구를 돌려준다."""
+        msg = None
+        if self.prev_wall is not None:
+            interval = wall - self.prev_wall
+            asleep = interval - (mono - self.prev_mono)
+            self.max_interval = max(self.max_interval, interval)
+            if interval > self.interval_s * 1.5:
+                msg = f"jobs late: interval={interval:.0f}s (expected {self.interval_s:.0f}s)"
+                if asleep > 10:
+                    msg += f", system was asleep ~{asleep:.0f}s (disable sleep, see docs/deploy.md)"
+        self.prev_wall, self.prev_mono = wall, mono
+        return msg
+
+    def finished(self, duration: float) -> str | None:
+        """회차 끝. 오래 걸렸거나 요약할 때가 되면 문구를 돌려준다."""
+        self.runs += 1
+        self.max_duration = max(self.max_duration, duration)
+        if duration > self.interval_s / 2:
+            return f"jobs slow: run took {duration:.1f}s"
+        if self.runs % self.summary_every == 0:
+            msg = (
+                f"jobs ok: {self.summary_every} runs, max interval {self.max_interval:.0f}s, "
+                f"max duration {self.max_duration:.1f}s"
+            )
+            self.max_interval = self.max_duration = 0.0
+            return msg
+        return None
+
+
 async def loop(app: FastAPI, interval_s: float = 60.0) -> None:
+    """고정 주기로 run_once 를 부른다. 처리 시간만큼 주기가 밀리지 않게 다음 시작 시각을 맞춘다."""
+    timing = LoopTiming(interval_s)
+    next_mono = time.monotonic()
     while True:
+        warn = timing.started(time.time(), time.monotonic())
+        if warn:
+            log.warning(warn)
+        started = time.monotonic()
         try:
             await asyncio.to_thread(run_once, app)
         except Exception:
             log.exception("jobs loop failed")
-        await asyncio.sleep(interval_s)
+        note = timing.finished(time.monotonic() - started)
+        if note:
+            (log.warning if note.startswith("jobs slow") else log.info)(note)
+        next_mono = max(next_mono + interval_s, time.monotonic())
+        await asyncio.sleep(next_mono - time.monotonic())

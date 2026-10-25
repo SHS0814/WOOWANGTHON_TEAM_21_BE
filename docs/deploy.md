@@ -89,6 +89,8 @@ curl -s https://woowang.example.com/health
 2. **컨테이너 자동 재시작:** `docker-compose.yml`의 모든 서비스가 `restart: always`라 Docker가 뜨면 같이 뜬다. `db`가 준비된 뒤 `api`가 시작된다 (healthcheck)
 3. **cloudflared 자동 시작:** 서비스로 설치 (`cloudflared service install`)
 4. **절전 끄기:** Windows 전원 설정에서 "절전 모드: 안 함", macOS는 "잠자기 방지", Linux는 `systemctl mask sleep.target suspend.target`
+   - **PC가 잠들면 1분 작업도 멈춘다.** 깨어날 때까지 무응답 인계·요약 푸시가 늦어진다 (QA Q-008: 맥이 23:41~23:57 잠들어 인계가 11분 늦음)
+   - macOS에서 개발·QA·시연할 때는 서버를 띄운 터미널에서 `caffeinate -dims` 를 같이 켜 둔다 (전원 연결 권장. 배터리에서는 잠자기가 더 자주 든다)
 5. **자동 업데이트 재부팅 주의:** 심사 기간(11/16~11/21)에는 OS 자동 업데이트로 인한 재부팅을 미뤄 둔다
 
 **시험 (11/8 전에 한 번, R-007 권고):**
@@ -100,6 +102,19 @@ docker compose ps
 # 5분 뒤 다른 기기(휴대폰 데이터망 등)에서
 curl -s https://woowang.example.com/health
 ```
+
+### 1분 작업이 늦을 때 (로그 확인)
+
+서버는 1분 작업의 실제 간격을 재서 늦으면 경고를 남긴다 (`docker compose logs api | grep jobs`).
+
+| 로그 | 뜻 | 할 일 |
+|---|---|---|
+| `jobs late: interval=986s (expected 60s), system was asleep ~926s` | PC가 잠들어 있었다 | 위 4번 절전 끄기 |
+| `jobs late: interval=154s` (asleep 없음) | 서버가 바빴거나 DB가 느렸다 | 같은 시각의 `jobs slow`, 오류 로그 확인 |
+| `jobs slow: run took 45.0s` | 한 회차가 너무 오래 걸렸다 | DB 상태, 가족 수 확인 |
+| `jobs ok: 60 runs, max interval 61s, ...` | 1시간마다 남는 정상 요약 | 없음 |
+
+macOS에서 잠들었던 시각은 `pmset -g log | grep -E " (Sleep|DarkWake|Wake) "` 로도 확인할 수 있다.
 
 ## 5. 외부 업타임 모니터
 

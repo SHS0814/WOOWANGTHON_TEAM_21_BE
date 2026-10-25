@@ -125,3 +125,23 @@ def test_expo_sender_failure_does_not_raise():
     sender = ExpoPushSender(transport=httpx.MockTransport(lambda r: httpx.Response(500)))
     sender.send([PushMessage("d1", "ExponentPushToken[a]", "t", "b", {})])
     assert sender.sent == []
+
+
+def test_loop_timing_detects_late_runs_and_sleep():
+    """R-021 Q-008: 실제 간격과 지연을 재고, PC 잠자기를 구분한다."""
+    from app.jobs import LoopTiming
+
+    t = LoopTiming(60, summary_every=3)
+    assert t.started(1000.0, 500.0) is None  # 첫 회차
+    assert t.finished(0.2) is None
+    assert t.started(1060.0, 560.0) is None  # 정상 간격
+    assert t.finished(0.3) is None
+    # 벽시계로 986초 지났지만 단조 시계는 60초: 그동안 PC 가 잠들어 있었다
+    warn = t.started(2046.0, 620.0)
+    assert "interval=986s" in warn and "asleep ~926s" in warn
+    note = t.finished(0.1)
+    assert note.startswith("jobs ok: 3 runs") and "max interval 986s" in note
+    # 잠들지 않았는데 늦으면(서버가 바빴음) 잠자기 문구 없음
+    warn = t.started(2200.0, 774.0)
+    assert "interval=154s" in warn and "asleep" not in warn
+    assert t.finished(45.0).startswith("jobs slow")
