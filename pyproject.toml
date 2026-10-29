@@ -12,6 +12,8 @@ dependencies = [
     "sqlalchemy>=2.0",
     "psycopg[binary]>=3.2",
     "python-multipart>=0.0.9",
+    # FCM HTTP v1 OAuth: 서비스 계정 키로 JWT(RS256) 서명. google-auth 대신 이것 하나만 (R-039)
+    "cryptography>=43",
 ]
 
 [project.optional-dependencies]

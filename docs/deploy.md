@@ -27,7 +27,10 @@ cp .env.example .env
 | `DEMO_MODE` | 시연 영상·심사 기간에만 `true`. 시연 트리거와 데모 가족 생성이 열린다 |
 | `ENV` | 운영은 `prod` (기본 `dev`). `prod`에서는 `CORS_ORIGINS`에 `*`를 쓸 수 없다 |
 | `CORS_ORIGINS` | 웹으로 앱을 열 때만 필요. 웹 앱 주소를 쉼표로 (예: `https://app.woowang.example`). 기본은 개발용 localhost. 휴대폰 앱(Expo 네이티브)은 CORS와 무관하다 |
-| `EXPO_PUSH_ENABLED` | 보호자 푸시를 실제로 보낼 때 `true`. `EXPO_ACCESS_TOKEN`은 Expo 계정에서 푸시 보안을 켰을 때만 |
+| `PUSH_PROVIDER` | 보호자 푸시를 실제로 보낼 때 `fcm` (R-039, Android만). `recording`은 보내지 않고 로그만 남긴다. 비우면 예전처럼 `EXPO_PUSH_ENABLED`(true면 `expo`)로 정한다 |
+| `SECRETS_DIR` | FCM 서비스 계정 키(`fcm-service-account.json`)가 있는 PC 폴더의 **절대 경로**. 예: `/Users/<이름>/woowang-secrets`. 저장소 밖에 두고 커밋하지 않는다. compose가 컨테이너의 `/run/secrets/woowang`에 읽기 전용으로 붙인다 |
+| `FCM_SERVICE_ACCOUNT_FILE` | 서버가 읽는 키 경로. Docker에서는 그대로 `/run/secrets/woowang/fcm-service-account.json`. Docker 없이 띄우면 PC 경로(`~/woowang-secrets/fcm-service-account.json`) |
+| `FCM_ANDROID_CHANNEL_ID` | 앱이 만든 보호자 알림 채널 id. 기본 `guardian` (앱과 같아야 잠금 화면 알림이 앱 설정대로 뜬다) |
 | `READER_LAYOUT`, `READER_CELLS` | 기본 `mock`(앱에 "모의 판독" 표시). 모델이 정해지면 `claude` 등으로 바꾸고 `ANTHROPIC_API_KEY`를 채운다 |
 
 > `POSTGRES_PASSWORD`는 DB를 **처음** 만들 때만 적용된다. 이미 `./data/postgres`가 있으면 바꿔도 반영되지 않는다.
@@ -44,6 +47,14 @@ curl -s http://127.0.0.1:8000/health  # {"status":"ok", ...}
 - 데이터는 `./data/postgres`(DB), `./data/photos`(사진)에 남는다. 컨테이너를 지워도 유지된다
 - 코드를 갱신하면: `git pull && docker compose up -d --build`
 - 로그: `docker compose logs -f api`
+
+보호자 푸시(FCM) 확인: 시작 로그에 `FCM 을 쓸 수 없음` ERROR가 없어야 한다 (파일이 없거나 잘못되면 서버는 뜨지만 푸시를 보내지 않는다). 실제로 보내지 않고 인증만 확인하려면:
+
+```bash
+uv run python scripts/fcm_check.py ~/woowang-secrets/fcm-service-account.json
+# oauth: ok … / fcm validate_only: HTTP 400 INVALID_ARGUMENT bad_token=True  ← 인증 정상 (가짜 토큰이라 400)
+# 기기 토큰을 두 번째 인자로 주면 HTTP 200 OK 가 나와야 한다 (그래도 실제 발송은 안 함)
+```
 
 로컬 판독 모델(선택): `docker compose --profile ollama up -d` 후 `docker compose exec ollama ollama pull qwen2.5vl:7b`. `.env`의 `OLLAMA_URL`을 `http://ollama:11434`로 바꾼다.
 

@@ -62,7 +62,13 @@ class Settings(BaseSettings):
     retake_wait_min: int = 15
     # 1분마다 복약 건 열기·인계 기한 확인·요약 푸시·정리 (backend.md 9장)
     jobs_enabled: bool = True
-    # Expo 푸시 실제 발송. false 면 로그만 남긴다
+    # 보호자 푸시: "fcm" | "expo" | "recording"(보내지 않고 로그만). 비우면 예전처럼
+    # EXPO_PUSH_ENABLED 로 정한다 (true → expo, 아니면 recording)
+    push_provider: str | None = None
+    # FCM 서비스 계정 키 JSON 경로 (R-039). 저장소 밖에 두고 커밋하지 않는다
+    fcm_service_account_file: str | None = None
+    # 앱이 만든 보호자 알림 채널 (FE src/notify/channels.ts 의 GUARDIAN_CHANNEL)
+    fcm_android_channel_id: str = "guardian"
     expo_push_enabled: bool = False
     expo_access_token: str | None = None
 
@@ -77,6 +83,12 @@ class Settings(BaseSettings):
         if "*" in origins and self.env != "dev":
             raise ValueError("CORS_ORIGINS 에 * 는 ENV=dev 에서만 쓸 수 있다")
         return origins
+
+    @property
+    def effective_push_provider(self) -> str:
+        if self.push_provider:
+            return self.push_provider.strip().lower()
+        return "expo" if self.expo_push_enabled else "recording"
 
     @property
     def ai_external_transfer(self) -> bool:

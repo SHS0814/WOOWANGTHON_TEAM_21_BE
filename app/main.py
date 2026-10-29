@@ -16,7 +16,7 @@ from app import __version__, jobs
 from app.config import Settings, get_settings
 from app.db import ensure_schema, make_engine, make_sessionmaker
 from app.errors import install_error_handlers
-from app.push import ExpoPushSender, PushSender, RecordingPushSender
+from app.push import PushSender, build_push_sender
 from app.ratelimit import SlidingWindow
 from app.reader import Reader, build_server_reader
 from app.routers import account, dose, handoffs, pairing, photos, pillboxes, summaries
@@ -47,11 +47,7 @@ def create_app(
     app.state.engine = engine
     app.state.sessionmaker = make_sessionmaker(engine)
     if push is None:
-        push = (
-            ExpoPushSender(settings.expo_access_token)
-            if settings.expo_push_enabled
-            else RecordingPushSender()
-        )
+        push = build_push_sender(settings, app.state.sessionmaker)
     app.state.push = push
     app.state.summary_sent = set()
     # family_id → 다음 복약 사진 1장의 모의 판독 시나리오 (QA, R-018)
