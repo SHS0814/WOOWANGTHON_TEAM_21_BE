@@ -33,6 +33,25 @@ harness/
 
 `--thresholds 0.7,0.9`는 신뢰도가 기준보다 낮은 판독을 애매로 바꿔 다시 센다. "정상" 판정 기준을 정하는 데 쓴다.
 
+## 여러 설정 비교 (`harness.compare`)
+
+추론 강도처럼 환경 변수로 바꾸는 조건은 조건마다 `--out-dir`을 나눠 `harness.run`을 돌리고, `harness.compare`로 합친다.
+API를 부르지 않는다. 사진 번호와 집계만 출력한다. `--tags`는 칸 표시 파일(`lid_open`, `partial`)로, `harness/data/` 안에 두고 커밋하지 않는다.
+
+```bash
+L=harness/data/real/labels.json; T=0.75,0.8,0.85,0.9,0.95; R=harness/results/t-ai3
+OPENAI_REASONING_EFFORT=      uv run python -m harness.run --labels $L --readers openai:gpt-6-luna  --thresholds $T --out-dir $R/luna-default
+OPENAI_REASONING_EFFORT=low   uv run python -m harness.run --labels $L --readers openai:gpt-6-luna  --thresholds $T --out-dir $R/luna-low
+OPENAI_REASONING_EFFORT=none  uv run python -m harness.run --labels $L --readers openai:gpt-6-luna  --thresholds $T --out-dir $R/luna-none
+OPENAI_REASONING_EFFORT=      uv run python -m harness.run --labels $L --readers openai:gpt-6.1-sol --thresholds $T --out-dir $R/sol-default
+uv run python -m harness.compare --labels $L --draft harness/data/real/labels.draft.json \\
+  --tags harness/data/real/cell_tags.json --thresholds $T --out $R/compare.md \\
+  --run luna-default=$R/luna-default --run luna-low=$R/luna-low \\
+  --run luna-none=$R/luna-none --run sol-default=$R/sol-default
+```
+
+재촬영 추정은 서버의 실제 `classify()`를 쓰되, 사진에 이번 칸 정보가 없어 각 칸을 이번 칸으로 하나씩 가정한다.
+
 ## 실사진 라벨 (사용자 확인 필요)
 
 `harness/data/real/`에 실사진 50장(중복 4쌍 제외)과 라벨 초안이 있다.
