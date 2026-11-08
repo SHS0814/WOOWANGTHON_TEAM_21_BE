@@ -27,6 +27,9 @@ class Family(Base):
     summary_push_time: Mapped[str] = mapped_column(String(5), default="21:00")
     photo_retention_days: Mapped[int] = mapped_column(Integer, default=90)
     unchanged_mode: Mapped[str] = mapped_column(String(32), default="remind_then_retake")
+    # 마지막 칸을 쓴 정상 기록 뒤 어르신에게 "약통을 채워 주세요" (R-071). 기존 DB 에는
+    # nullable 열로 붙고(db._add_missing_columns) NULL 은 false 로 본다
+    elder_refill_prompt: Mapped[bool | None] = mapped_column(Boolean, nullable=True, default=False)
     is_demo: Mapped[bool] = mapped_column(Boolean, default=False)
     created_at: Mapped[datetime] = mapped_column(UTCDateTime, default=_now)
 
@@ -84,6 +87,7 @@ class Photo(Base):
     # 복약 사진의 처리 결과 (같은 client_upload_id 재전송에 같은 결과를 돌려주기 위해)
     upload_result: Mapped[str | None] = mapped_column(String(24), nullable=True)
     upload_is_mock: Mapped[bool | None] = mapped_column(Boolean, nullable=True)
+    upload_refill_prompt: Mapped[bool | None] = mapped_column(Boolean, nullable=True)
     deleted_at: Mapped[datetime | None] = mapped_column(UTCDateTime, nullable=True)
 
 

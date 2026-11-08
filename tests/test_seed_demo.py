@@ -16,6 +16,7 @@ def test_seed_creates_ready_demo_family(client, settings, reader):
     assert cur["last_refill"]["needs_review"] is False
     assert cur["refill_status"]["remaining_cells"] == 14
     assert len(client.get("/api/v1/schedule", headers=g).json()["slots"]) == 14
+    assert client.get("/api/v1/settings", headers=g).json()["elder_refill_prompt"] is False
     # 데모 가족이라 시연 트리거가 열린다
     slots = client.get("/api/v1/schedule", headers=g).json()["slots"]
     fri_pm = next(s for s in slots if s["weekday"] == 4 and s["time_of_day"] == "evening")
@@ -68,6 +69,7 @@ def test_seed_daily_pillbox(client, settings, reader):
     assert cur["refill_status"]["remaining_cells"] == 3
     assert cur["refill_status"]["threshold_cells"] == 0
     assert cur["refill_status"]["needs_refill"] is False
+    assert client.get("/api/v1/settings", headers=g).json()["elder_refill_prompt"] is True
     slots = client.get("/api/v1/schedule", headers=g).json()["slots"]
     assert len(slots) == 21
     assert {(s["time_of_day"], s["cell_id"]) for s in slots} == {
