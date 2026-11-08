@@ -121,6 +121,7 @@ class SettingsIn(BaseModel):
     summary_push_time: str | None = Field(default=None, pattern=r"^([01]\d|2[0-3]):[0-5]\d$")
     photo_retention_days: int | None = Field(default=None, ge=1, le=365)
     unchanged_mode: Literal["remind_then_retake", "handoff_immediately"] | None = None
+    elder_refill_prompt: bool | None = None
 
 
 def _settings_out(auth: Auth) -> dict:
@@ -131,6 +132,7 @@ def _settings_out(auth: Auth) -> dict:
         "summary_push_time": f.summary_push_time,
         "photo_retention_days": f.photo_retention_days,
         "unchanged_mode": f.unchanged_mode,
+        "elder_refill_prompt": bool(f.elder_refill_prompt),
     }
 
 

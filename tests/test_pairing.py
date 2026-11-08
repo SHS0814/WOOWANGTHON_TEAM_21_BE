@@ -159,6 +159,7 @@ def test_settings_get_put(client):
         "summary_push_time": "21:00",
         "photo_retention_days": 90,
         "unchanged_mode": "remind_then_retake",
+        "elder_refill_prompt": False,
     }
     res = client.put(
         "/api/v1/settings",

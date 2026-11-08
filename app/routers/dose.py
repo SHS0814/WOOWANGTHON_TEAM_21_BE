@@ -16,6 +16,7 @@ from app.models import DoseEvent, Handoff, Photo, ScheduleSlot
 from app.serializers import base_url, elder_notification_warning, event_out, events_out
 from app.services import dose as ds
 from app.services import readings as rs
+from app.services.expected import active_pillbox, latest_refill, refill_status
 from app.storage import load
 from app.timeutil import iso, kst_date
 
@@ -167,6 +168,7 @@ async def upload_dose_photo(
                 "result": prior.upload_result,
                 "dose_event": event_out(db, settings, url, event, guardian=False),
                 "is_mock": prior.upload_is_mock,
+                "refill_prompt": bool(prior.upload_refill_prompt),
             }
 
     data = await photo.read(settings.photo_max_bytes + 1)
@@ -216,12 +218,28 @@ async def upload_dose_photo(
         raise
     p.upload_result = outcome.result
     p.upload_is_mock = outcome.is_mock
+    p.upload_refill_prompt = _refill_prompt(db, settings, auth.family, outcome.result, now)
     db.commit()
     return {
         "result": outcome.result,
         "dose_event": event_out(db, settings, url, event, guardian=False),
         "is_mock": outcome.is_mock,
+        "refill_prompt": p.upload_refill_prompt,
     }
+
+
+def _refill_prompt(db: Session, settings: Settings, family, result: str, now: datetime) -> bool:
+    """정상 기록 뒤 약통 남은 칸이 0이면 어르신에게 채워 달라고 한다 (R-071, api.md 3.18).
+
+    남은 칸은 GET /pillboxes/current 의 remaining_cells 와 같은 계산(기대 상태의 full 칸 수).
+    """
+    if result != "recorded" or not family.elder_refill_prompt:
+        return False
+    pb = active_pillbox(db, family.id)
+    refill = latest_refill(db, pb.id) if pb is not None else None
+    if refill is None:
+        return False
+    return refill_status(db, settings, family.id, refill, now).remaining_cells == 0
 
 
 class SimulateIn(BaseModel):

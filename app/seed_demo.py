@@ -4,6 +4,7 @@
 데모 가족, 보호자·어르신 기기, 약통, 일정, 모두 채운 기준선을 한 번에 만든다.
 약통은 2×7 일주일 약통(기본) 또는 `--pillbox day` 1×3 하루 약통(아침·점심·저녁, R-054).
 하루 약통은 같은 칸을 매일 쓰므로 저녁 복약 뒤 리필(POST /refills)해야 다음 날 판독된다.
+하루 약통이면 보호자 설정 elder_refill_prompt=true 로 둔다 (R-071).
 
     docker compose exec api uv run --no-sync python -m app.seed_demo create
     uv run python -m app.seed_demo create --base-url http://127.0.0.1:8000
@@ -134,6 +135,9 @@ def seed(
             for wd in range(7)
         ]
     _ok(client.put(f"{api}/schedule", json={"slots": slots}, headers=g))
+    if daily:
+        # 하루 약통은 마지막(저녁) 칸을 쓴 뒤 어르신에게 채워 달라고 안내한다 (R-071)
+        _ok(client.put(f"{api}/settings", json={"elder_refill_prompt": True}, headers=g))
     invite = _ok(client.post(f"{api}/pairing-codes", json={"kind": "guardian"}, headers=g), 201)
     return {
         "family_id": fam["family_id"],
