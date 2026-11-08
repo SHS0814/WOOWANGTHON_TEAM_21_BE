@@ -180,7 +180,6 @@ def event_out(
         .where(Reading.dose_event_id == event.id, Reading.kind == "cells")
         .order_by(Reading.created_at)
     ).all()
-    latest = next((r for r in reversed(readings) if r.error is None and r.cells), None)
     handoff = None
     if guardian:
         handoff = db.scalar(
@@ -190,6 +189,108 @@ def event_out(
             .limit(1)
         )
     decided_by = db.get(Device, event.decided_by_device_id) if event.decided_by_device_id else None
+    return _event_dict(
+        db,
+        settings,
+        url_base,
+        event,
+        slot,
+        photos,
+        readings,
+        handoff,
+        decided_by,
+        guardian=guardian,
+        carried_over=carried_over,
+    )
+
+
+def events_out(
+    db: Session, settings: Settings, url_base: str, events: list[DoseEvent], *, guardian: bool
+) -> list[dict]:
+    """여러 복약 건을 한꺼번에 직렬화한다 (기간 기록 366일, R-051). 결과는 event_out 과 같다.
+
+    건마다 쿼리를 날리지 않고 칸·사진·판독·인계·기기를 종류별로 한 번씩 읽는다.
+    """
+    if not events:
+        return []
+    ids = [e.id for e in events]
+    photos: dict[str, list[Photo]] = {i: [] for i in ids}
+    readings: dict[str, list[Reading]] = {i: [] for i in ids}
+    handoffs: dict[str, Handoff] = {}
+    # 이 목록들이 세션 identity map 의 객체를 붙잡아 두어 아래 db.get 이 쿼리 없이 끝난다
+    keep: list = list(
+        db.scalars(select(ScheduleSlot).where(ScheduleSlot.id.in_({e.slot_id for e in events})))
+    )
+    for chunk in _chunks(ids):
+        for p in db.scalars(
+            select(Photo)
+            .where(Photo.dose_event_id.in_(chunk), Photo.deleted_at.is_(None))
+            .order_by(Photo.uploaded_at)
+        ):
+            photos[p.dose_event_id].append(p)
+        for r in db.scalars(
+            select(Reading)
+            .where(Reading.dose_event_id.in_(chunk), Reading.kind == "cells")
+            .order_by(Reading.created_at)
+        ):
+            readings[r.dose_event_id].append(r)
+        if guardian:
+            for h in db.scalars(
+                select(Handoff)
+                .where(Handoff.dose_event_id.in_(chunk), Handoff.binds_event)
+                .order_by(Handoff.notified_at)
+            ):
+                handoffs[h.dose_event_id] = h  # 마지막(최신)이 남는다
+    device_ids = {e.decided_by_device_id for e in events if e.decided_by_device_id}
+    if device_ids:
+        keep += db.scalars(select(Device).where(Device.id.in_(device_ids))).all()
+    if guardian:
+        # latest_reading 의 사진 (보관 기한으로 지워진 사진 포함)
+        photo_ids = {lr.photo_id for rs in readings.values() if (lr := _latest(rs)) is not None}
+        if photo_ids:
+            keep += db.scalars(select(Photo).where(Photo.id.in_(photo_ids))).all()
+    return [
+        _event_dict(
+            db,
+            settings,
+            url_base,
+            e,
+            db.get(ScheduleSlot, e.slot_id),
+            photos[e.id],
+            readings[e.id],
+            handoffs.get(e.id),
+            db.get(Device, e.decided_by_device_id) if e.decided_by_device_id else None,
+            guardian=guardian,
+            carried_over=False,
+        )
+        for e in events
+    ]
+
+
+def _chunks(ids: list[str], size: int = 500):
+    for i in range(0, len(ids), size):
+        yield ids[i : i + size]
+
+
+def _latest(readings) -> Reading | None:
+    return next((r for r in reversed(readings) if r.error is None and r.cells), None)
+
+
+def _event_dict(
+    db: Session,
+    settings: Settings,
+    url_base: str,
+    event: DoseEvent,
+    slot: ScheduleSlot,
+    photos,
+    readings,
+    handoff: Handoff | None,
+    decided_by: Device | None,
+    *,
+    guardian: bool,
+    carried_over: bool,
+) -> dict:
+    latest = _latest(readings)
     asks = [event.scheduled_at] + [
         event.scheduled_at + timedelta(minutes=m) for m in settings.reask_offsets_min
     ]
