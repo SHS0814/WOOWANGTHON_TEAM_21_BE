@@ -57,3 +57,21 @@ def test_cli_requires_subcommand(capsys):
 
     with pytest.raises(SystemExit):
         main([])
+
+
+def test_seed_daily_pillbox(client, settings, reader):
+    settings.demo_mode = True
+    out = seed(client, pillbox="day")
+    g = bearer(out["guardian_token"])
+    cur = client.get("/api/v1/pillboxes/current", headers=g).json()
+    assert cur["pillbox"]["layout"]["rows"] == 1 and cur["pillbox"]["layout"]["cols"] == 3
+    assert cur["refill_status"]["remaining_cells"] == 3
+    assert cur["refill_status"]["threshold_cells"] == 0
+    assert cur["refill_status"]["needs_refill"] is False
+    slots = client.get("/api/v1/schedule", headers=g).json()["slots"]
+    assert len(slots) == 21
+    assert {(s["time_of_day"], s["cell_id"]) for s in slots} == {
+        ("morning", "r0c0"),
+        ("noon", "r0c1"),
+        ("evening", "r0c2"),
+    }

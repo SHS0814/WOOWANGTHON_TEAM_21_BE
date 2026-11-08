@@ -258,16 +258,17 @@ def put_schedule(
 ):
     pb = _require_pillbox(db, auth.family.id)
     cell_ids = {c["id"] for c in pb.layout["cells"]}
-    seen_cells: set[str] = set()
+    # 같은 칸을 여러 요일에 쓰는 하루 약통은 허용한다 (R-054). 같은 요일 안에서만 겹치면 안 된다
+    seen_cells: set[tuple[str, int]] = set()
     seen_times: set[tuple[int, str]] = set()
     for i, s in enumerate(body.slots):
         if s.cell_id not in cell_ids:
             raise validation(f"slots.{i}.cell_id", "약통에 없는 칸")
-        if s.cell_id in seen_cells:
-            raise validation(f"slots.{i}.cell_id", "같은 칸에 일정 두 개")
+        if (s.cell_id, s.weekday) in seen_cells:
+            raise validation(f"slots.{i}.cell_id", "같은 요일에 같은 칸 두 번")
         if (s.weekday, s.time_of_day) in seen_times:
             raise validation(f"slots.{i}", "같은 요일·시간대 두 번")
-        seen_cells.add(s.cell_id)
+        seen_cells.add((s.cell_id, s.weekday))
         seen_times.add((s.weekday, s.time_of_day))
 
     now = clock.now()

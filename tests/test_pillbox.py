@@ -117,9 +117,11 @@ def test_schedule_put_get_and_validation(client):
     assert len(out["slots"]) == 14 and out["updated_at"].endswith("+09:00")
     # 어르신도 일정을 읽는다 (오프라인 알림용)
     assert len(client.get("/api/v1/schedule", headers=f.e).json()["slots"]) == 14
-    bad = [*slots[:1], {**slots[1], "cell_id": slots[0]["cell_id"]}]
+    # 같은 요일에 같은 칸 두 번 (slots[7] = 월 저녁)
+    bad = [slots[0], {**slots[7], "cell_id": slots[0]["cell_id"]}]
     res = client.put("/api/v1/schedule", json={"slots": bad}, headers=f.g)
     assert res.status_code == 422
+    assert res.json()["error"]["details"]["fields"][0]["field"] == "slots.1.cell_id"
     bad = [{**slots[0], "cell_id": "r9c9"}]
     assert client.put("/api/v1/schedule", json={"slots": bad}, headers=f.g).status_code == 422
     bad = [slots[0], {**slots[7], "time_of_day": "morning", "weekday": 0}]

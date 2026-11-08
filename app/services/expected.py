@@ -3,6 +3,9 @@
 기대 상태: 마지막 리필 기준선에서 시작해, 그 뒤 복약 건의 결과를 칸에 반영한다.
 - taken → empty
 - 인계됐거나 not_taken / acknowledged → ignored (비교 제외, R-007 C2)
+  단 이미 empty 인 칸(이번 주기에 이미 쓴 칸)은 empty 로 남는다. 하루 약통(R-054)에서
+  채우지 않고 며칠 쓰면 같은 칸에 건이 여러 개 생긴다. 둘째 날 refill_overdue 인계로
+  ignored 가 되면 셋째 날 빈 칸이 정상으로 기록되므로, 채울 때까지 비어 있는 것으로 본다
 - 리필 확인 "아니요"로 뺀 칸 → ignored (R-010 3번)
 """
 
@@ -69,7 +72,9 @@ def expected_states(
             continue
         if event.outcome == "taken":
             states[cell_id] = "empty"
-        elif event.state == "handed_off" or event.outcome in ("not_taken", "acknowledged"):
+        elif states[cell_id] != "empty" and (
+            event.state == "handed_off" or event.outcome in ("not_taken", "acknowledged")
+        ):
             states[cell_id] = "ignored"
     # 리필 확인 "아니요"로 뺀 칸은 복약 기록보다 우선한다 (R-010 3번)
     for cid in refill.ignored_cells or []:
@@ -81,6 +86,21 @@ def expected_states(
 def doses_per_day(slots: list[ScheduleSlot]) -> int:
     per_day = Counter(s.weekday for s in slots)
     return max(per_day.values(), default=0)
+
+
+def threshold_cells(slots: list[ScheduleSlot], threshold_days: int) -> int:
+    """리필 안내 기준 칸 수 (R-010 5번, R-054).
+
+    하루 복용 횟수 × 일수. 일수는 REFILL_THRESHOLD_DAYS 와 (약통 한 번 채워 가는 일수 - 1) 중
+    작은 값이다. 가는 일수 = 일정에 쓰인 칸 수 ÷ 하루 복용 횟수 (일주일 약통 14칸·하루 2번 → 7일,
+    하루 약통 3칸·하루 3번 → 1일). 일주일 약통은 지금과 같고(2일), 하루 약통은 0일이라
+    남은 칸이 0일 때(저녁 복약 뒤)만 needs_refill 이 된다. 매일 아침부터 경고하지 않는다.
+    """
+    per_day = doses_per_day(slots)
+    if per_day == 0:
+        return 0
+    cycle_days = len({s.cell_id for s in slots}) // per_day
+    return per_day * max(0, min(threshold_days, cycle_days - 1))
 
 
 @dataclass
@@ -103,9 +123,9 @@ def refill_status(
     db: Session, settings: Settings, family_id: str, refill: Refill | None, now: datetime
 ) -> RefillStatus:
     slots = active_slots(db, family_id)
-    threshold = doses_per_day(slots) * settings.refill_threshold_days
+    threshold = threshold_cells(slots, settings.refill_threshold_days)
     if refill is None or not slots:
-        return RefillStatus(0, None, threshold > 0, threshold)
+        return RefillStatus(0, None, bool(slots), threshold)
     states = expected_states(db, refill)
     slot_cells = {s.cell_id for s in slots}
     remaining = sum(1 for cid, st in states.items() if st == "full" and cid in slot_cells)

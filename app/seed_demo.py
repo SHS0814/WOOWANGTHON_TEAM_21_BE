@@ -1,7 +1,9 @@
 """시연·심사용 데모 가족 만들기 (R-010 10번, R-007 C4, R-015).
 
 실행 중인 서버의 API를 그대로 불러서 만든다 (서버에 DEMO_MODE=true 필요).
-데모 가족, 보호자·어르신 기기, 2×7 약통, 일정, 모두 채운 기준선을 한 번에 만든다.
+데모 가족, 보호자·어르신 기기, 약통, 일정, 모두 채운 기준선을 한 번에 만든다.
+약통은 2×7 일주일 약통(기본) 또는 `--pillbox day` 1×3 하루 약통(아침·점심·저녁, R-054).
+하루 약통은 같은 칸을 매일 쓰므로 저녁 복약 뒤 리필(POST /refills)해야 다음 날 판독된다.
 
     docker compose exec api uv run --no-sync python -m app.seed_demo create
     uv run python -m app.seed_demo create --base-url http://127.0.0.1:8000
@@ -46,8 +48,13 @@ def seed(
     guardian_name: str = "민수",
     morning: str = "08:00",
     evening: str = "19:00",
+    noon: str = "12:00",
+    pillbox: str = "week",
     photo: bytes | None = None,
 ) -> dict:
+    if pillbox not in ("week", "day"):
+        raise SystemExit(f"pillbox 는 week 또는 day: {pillbox}")
+    daily = pillbox == "day"
     api = "/api/v1"
     fam = _ok(
         client.post(
@@ -78,7 +85,8 @@ def seed(
         )
     )
 
-    image = photo or full_pillbox_png()
+    rows, cols = (1, 3) if daily else (2, 7)
+    image = photo or full_pillbox_png(rows, cols)
     det = _ok(
         client.post(
             f"{api}/pillboxes/detect",
@@ -86,12 +94,10 @@ def seed(
             headers=g,
         )
     )
-    layout = {
-        "rows": 2,
-        "cols": 7,
-        "row_labels": ["아침", "저녁"],
-        "col_labels": WEEK,
-    }
+    if daily:
+        layout = {"rows": 1, "cols": 3, "row_labels": [], "col_labels": ["아침", "점심", "저녁"]}
+    else:
+        layout = {"rows": 2, "cols": 7, "row_labels": ["아침", "저녁"], "col_labels": WEEK}
     pb = _ok(
         client.post(
             f"{api}/pillboxes",
@@ -113,11 +119,20 @@ def seed(
             headers=g,
         )
     )
-    slots = [
-        {"weekday": wd, "time_of_day": tod, "dose_time": t, "cell_id": f"r{row}c{wd}"}
-        for row, (tod, t) in enumerate((("morning", morning), ("evening", evening)))
-        for wd in range(7)
-    ]
+    if daily:
+        # 같은 칸을 매일 쓴다 (R-054)
+        times = (("morning", morning), ("noon", noon), ("evening", evening))
+        slots = [
+            {"weekday": wd, "time_of_day": tod, "dose_time": t, "cell_id": f"r0c{col}"}
+            for wd in range(7)
+            for col, (tod, t) in enumerate(times)
+        ]
+    else:
+        slots = [
+            {"weekday": wd, "time_of_day": tod, "dose_time": t, "cell_id": f"r{row}c{wd}"}
+            for row, (tod, t) in enumerate((("morning", morning), ("evening", evening)))
+            for wd in range(7)
+        ]
     _ok(client.put(f"{api}/schedule", json={"slots": slots}, headers=g))
     invite = _ok(client.post(f"{api}/pairing-codes", json={"kind": "guardian"}, headers=g), 201)
     return {
@@ -161,6 +176,13 @@ def main(argv: list[str] | None = None) -> int:
     c.add_argument("--guardian-name", default="민수")
     c.add_argument("--morning", default="08:00")
     c.add_argument("--evening", default="19:00")
+    c.add_argument("--noon", default="12:00", help="하루 약통의 점심 시각")
+    c.add_argument(
+        "--pillbox",
+        choices=["week", "day"],
+        default="week",
+        help="week: 2×7 일주일 약통, day: 1×3 하루 약통 (아침·점심·저녁, 저녁 뒤 리필)",
+    )
     c.add_argument("--photo", help="채운 약통 사진 경로 (없으면 합성 이미지)")
     sub.add_parser("revoke", help="데모 가족의 모든 기기 토큰 폐기 (DATABASE_URL 사용)")
     args = ap.parse_args(argv)
@@ -180,6 +202,8 @@ def main(argv: list[str] | None = None) -> int:
             guardian_name=args.guardian_name,
             morning=args.morning,
             evening=args.evening,
+            noon=args.noon,
+            pillbox=args.pillbox,
             photo=photo,
         )
     print(
