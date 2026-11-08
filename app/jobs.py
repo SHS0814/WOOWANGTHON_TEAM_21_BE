@@ -35,7 +35,9 @@ def summary_body(s: dict, family: Family) -> str:
         taken = c["taken_ai"] + c["taken_guardian"]
         text = f"{unit} {c['scheduled']}번 중 {taken}번 기록, 확인할 일 {c['open_handoffs']}건"
     if s["refill"] and s["refill"]["needs_refill"]:
-        text += f" · 약통이 {s['refill']['remaining_cells']}칸 남았어요"
+        left = s["refill"]["remaining_cells"]
+        # 하루 약통은 저녁 복약 뒤 0칸이 된다 (R-054). "0칸 남았어요" 대신 채워 달라고 쓴다
+        text += f" · 약통이 {left}칸 남았어요" if left else " · 약통을 채워 주세요"
     if s["pillbox_mismatch"]:
         text += " · 약통 상태가 기록과 달라요"
     if s["includes_mock"]:
