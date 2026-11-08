@@ -55,7 +55,8 @@ def test_day_summary_with_handoff_and_defaults(client, fam, reader):  # noqa: F8
     assert [i["period_start"] for i in items][-1] == "2026-10-23" and len(items) == 7
     weeks = client.get("/api/v1/summaries?period=week", headers=fam.g).json()["items"]
     assert weeks[-1]["period_start"] == "2026-10-19" and weeks[-1]["period_end"] == "2026-10-25"
-    res = client.get("/api/v1/summaries?period=day&from=2026-01-01&to=2026-10-23", headers=fam.g)
+    # 하루 요약 최대 366일 (R-051, 이전 31일)
+    res = client.get("/api/v1/summaries?period=day&from=2025-10-22&to=2026-10-23", headers=fam.g)
     assert res.status_code == 422
     assert client.get("/api/v1/summaries?period=day", headers=fam.e).status_code == 403
 

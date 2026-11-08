@@ -5,7 +5,7 @@ from typing import Annotated, Literal
 
 from fastapi import APIRouter, Depends, File, Form, Query, Request, UploadFile
 from pydantic import BaseModel
-from sqlalchemy import func, select
+from sqlalchemy import func, or_, select
 from sqlalchemy.orm import Session
 
 from app.clock import clock
@@ -13,7 +13,7 @@ from app.config import Settings
 from app.deps import Auth, auth_any, auth_elder, auth_guardian, get_db, get_settings
 from app.errors import ApiError, not_found, validation
 from app.models import DoseEvent, Handoff, Photo, ScheduleSlot
-from app.serializers import base_url, elder_notification_warning, event_out
+from app.serializers import base_url, elder_notification_warning, event_out, events_out
 from app.services import dose as ds
 from app.services import readings as rs
 from app.storage import load
@@ -22,18 +22,37 @@ from app.timeutil import iso, kst_date
 router = APIRouter()
 
 
-def _events_for(db: Session, family_id: str, start: date, end: date) -> list[DoseEvent]:
-    return list(
-        db.scalars(
-            select(DoseEvent)
-            .where(
-                DoseEvent.family_id == family_id,
-                DoseEvent.date >= start.isoformat(),
-                DoseEvent.date <= end.isoformat(),
-            )
-            .order_by(DoseEvent.scheduled_at)
-        )
+def _events_for(
+    db: Session,
+    family_id: str,
+    start: date,
+    end: date,
+    *,
+    filter_: str | None = None,
+    reason: str | None = None,
+    desc: bool = False,
+) -> list[DoseEvent]:
+    q = select(DoseEvent).where(
+        DoseEvent.family_id == family_id,
+        DoseEvent.date >= start.isoformat(),
+        DoseEvent.date <= end.isoformat(),
     )
+    # 인계가 있었던 건: 사유·판정과 관계없이 인계 행이 하나라도 있는 건 (R-051)
+    had_handoff = select(Handoff.id).where(Handoff.dose_event_id == DoseEvent.id).exists()
+    if filter_ == "exceptions":
+        q = q.where(or_(had_handoff, DoseEvent.outcome == "not_taken"))
+    elif filter_ == "handoff":
+        q = q.where(had_handoff)
+    elif filter_ in ("not_taken", "taken"):
+        q = q.where(DoseEvent.outcome == filter_)
+    if reason is not None:
+        q = q.where(
+            select(Handoff.id)
+            .where(Handoff.dose_event_id == DoseEvent.id, Handoff.reason == reason)
+            .exists()
+        )
+    order = DoseEvent.scheduled_at.desc() if desc else DoseEvent.scheduled_at
+    return list(db.scalars(q.order_by(order)))
 
 
 @router.get("/dose-events/today")
@@ -79,25 +98,45 @@ def today_events(
     }
 
 
+# api.md HandoffReason (ds.ALLOWED_VERDICTS 의 키와 같다. 테스트로 확인)
+HandoffReason = Literal[
+    "no_response",
+    "unclear",
+    "unchanged",
+    "double_suspected",
+    "refill_unconfirmed",
+    "refill_overdue",
+]
+
+
 @router.get("/dose-events")
 def list_events(
     request: Request,
     from_: Annotated[date, Query(alias="from")],
     to: date,
+    filter_: Annotated[
+        Literal["exceptions", "handoff", "not_taken", "taken"] | None, Query(alias="filter")
+    ] = None,
+    reason: HandoffReason | None = None,
+    order: Literal["asc", "desc"] = "asc",
     auth: Auth = Depends(auth_guardian),
     db: Session = Depends(get_db),
     settings: Settings = Depends(get_settings),
 ):
     if from_ > to:
         raise validation("from", "from 이 to 보다 늦음")
-    if (to - from_).days >= 31:
-        raise validation("to", "최대 31일")
+    # 검색(filter·reason)이면 최대 366일, 아니면 31일 (R-051)
+    limit = 366 if filter_ is not None or reason is not None else 31
+    if (to - from_).days >= limit:
+        raise validation("to", f"최대 {limit}일")
     url = base_url(request, settings)
-    events = _events_for(db, auth.family.id, from_, to)
+    events = _events_for(
+        db, auth.family.id, from_, to, filter_=filter_, reason=reason, desc=order == "desc"
+    )
     return {
         "from": from_.isoformat(),
         "to": to.isoformat(),
-        "items": [event_out(db, settings, url, e, guardian=True) for e in events],
+        "items": events_out(db, settings, url, events, guardian=True),
     }
 
 
