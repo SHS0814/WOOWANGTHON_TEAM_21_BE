@@ -141,8 +141,9 @@ def list_events(
     }
 
 
+# async def 로 두지 않는다. 판독이 이벤트 루프를 막아 그동안 서버 전체가 멈춘다 (pillboxes.py 의 설명 참고)
 @router.post("/dose-events/{event_id}/photo")
-async def upload_dose_photo(
+def upload_dose_photo(
     event_id: str,
     request: Request,
     photo: Annotated[UploadFile, File()],
@@ -171,7 +172,7 @@ async def upload_dose_photo(
                 "refill_prompt": bool(prior.upload_refill_prompt),
             }
 
-    data = await photo.read(settings.photo_max_bytes + 1)
+    data = photo.file.read(settings.photo_max_bytes + 1)
     if len(data) > settings.photo_max_bytes:
         raise ApiError(413, "photo_too_large", "사진이 너무 큼")
     now = clock.now()
