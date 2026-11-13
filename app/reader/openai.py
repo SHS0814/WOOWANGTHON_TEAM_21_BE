@@ -20,6 +20,7 @@ from app.reader.base import (
     ReaderError,
     ReaderUnavailable,
     normalize_cells,
+    parse_camera_angle,
     sniff_media_type,
 )
 from app.reader.prompts import LAYOUT_PROMPT, cells_prompt, cells_schema, layout_schema
@@ -207,5 +208,6 @@ class OpenAIReader:
             is_mock=False,
             raw_response=raw,
             cells=normalize_cells(layout, cells),
+            camera_angle=parse_camera_angle(data),
             **meta,
         )
