@@ -68,6 +68,8 @@ class ReaderResult:
                 "input_tokens": meta.input_tokens,
                 "output_tokens": meta.output_tokens,
                 "cost_usd": cost,
+                # 판독기가 답한 사진 각도 (칸 판독에만 있다)
+                "camera_angle": getattr(meta, "camera_angle", None),
             }
         )
 
@@ -293,7 +295,15 @@ def main(argv: list[str] | None = None) -> int:
                         ]
                     )
         with (args.out_dir / f"{stamp}-calls.csv").open("w", newline="", encoding="utf-8") as f:
-            fields = ["photo_id", "kind", "latency_ms", "input_tokens", "output_tokens", "cost_usd"]
+            fields = [
+                "photo_id",
+                "kind",
+                "latency_ms",
+                "input_tokens",
+                "output_tokens",
+                "cost_usd",
+                "camera_angle",
+            ]
             w = csv.writer(f)
             w.writerow(["reader", *fields])
             for r in results:

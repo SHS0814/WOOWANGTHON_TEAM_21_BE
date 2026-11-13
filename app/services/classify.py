@@ -1,6 +1,7 @@
 """판독 분류 (backend.md 5·6장, R-010 2번, R-014). DB 없이 판독 결과와 기대 상태만 보고 정한다.
 
 분류 순서:
+0. 비스듬한 사진: 판독기가 camera_angle=oblique 라고 답하면 칸 판독과 상관없이 애매 (다시 찍기)
 1. 이미 쓴 칸 (R-014): 대상 칸이 이번 주기에 이미 비어 있어야 하는 칸인데 비어 보임 → 정상 금지
 2. 이중 복용 의심: 기대상 차 있어야 할 다른 칸이 비어 보임
 3. 애매: 대상 칸 unclear·신뢰도 부족, 또는 다른 칸 unclear
@@ -69,6 +70,10 @@ def classify(
     def done(kind: Kind) -> Classified:
         return Classified(kind, cells, refill_suspected, refill_full)
 
+    # 비스듬히 찍은 사진은 약이 뚜껑·칸막이에 가려 빈 칸처럼 보일 수 있다 (2026-11-13 B 약통 평가).
+    # 칸 판독과 상관없이 애매로 돌려 다시 찍게 한다. 이중 복용 의심·정상 어느 쪽으로도 쓰지 않는다
+    if result.camera_angle == "oblique":
+        return done("unclear")
     if target_known_empty and target.state == "empty":
         return done("already_used")
     if any(c.state == "empty" and expected.get(c.cell_id) == "full" for c in others):

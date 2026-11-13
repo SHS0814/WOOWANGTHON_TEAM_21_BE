@@ -12,6 +12,9 @@ CellState = Literal["empty", "full", "unclear"]
 TimeOfDay = Literal["morning", "noon", "evening", "bedtime"]
 # 판독 목적. baseline = 약통 등록·리필 기준선 (채운 직후 사진), dose = 매 복약
 Purpose = Literal["dose", "baseline"]
+# 사진을 찍은 각도. oblique = 낮은 각도로 비스듬히 찍어 칸 바닥이 다 보이지 않음 (약이 가려질 수 있다)
+CameraAngle = Literal["top", "oblique"]
+CAMERA_ANGLES: tuple[str, ...] = ("top", "oblique")
 
 
 class Cell(BaseModel):
@@ -73,6 +76,8 @@ class CellReading(BaseModel):
 
 class CellReadings(ReaderMeta):
     cells: list[CellReading]
+    # 판독기가 답한 사진 각도. 모르거나 답하지 않으면 None (모의 판독기, 형식이 틀린 응답)
+    camera_angle: CameraAngle | None = None
 
     def by_id(self) -> dict[str, CellReading]:
         return {c.cell_id: c for c in self.cells}
@@ -104,6 +109,12 @@ def normalize_cells(layout: Layout, cells: list[CellReading]) -> list[CellReadin
         got.get(cid) or CellReading(cell_id=cid, state="unclear", confidence=0.0)
         for cid in layout.cell_ids()
     ]
+
+
+def parse_camera_angle(data: object) -> CameraAngle | None:
+    """모델 응답에서 camera_angle 을 꺼낸다. 없거나 모르는 값이면 None."""
+    value = data.get("camera_angle") if isinstance(data, dict) else None
+    return value if value in CAMERA_ANGLES else None
 
 
 def sniff_media_type(image: bytes) -> str:
