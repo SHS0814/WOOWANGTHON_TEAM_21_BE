@@ -38,8 +38,8 @@ def _require_pillbox(db: Session, family_id: str, status: int = 409) -> Pillbox:
     return pb
 
 
-async def _read_upload(photo: UploadFile, settings: Settings) -> bytes:
-    data = await photo.read(settings.photo_max_bytes + 1)
+def _read_upload(photo: UploadFile, settings: Settings) -> bytes:
+    data = photo.file.read(settings.photo_max_bytes + 1)
     if len(data) > settings.photo_max_bytes:
         raise ApiError(413, "photo_too_large", "사진이 너무 큼")
     return data
@@ -48,8 +48,10 @@ async def _read_upload(photo: UploadFile, settings: Settings) -> bytes:
 # ---------- 약통 ----------
 
 
+# 판독(외부 AI 호출)은 몇 초에서 수십 초 걸리는 동기 호출이다. 사진을 받는 핸들러를 async def 로 두면
+# 이벤트 루프에서 판독을 불러 그동안 다른 요청과 /health 가 모두 멈춘다. def 로 두어 스레드 풀에서 돌린다
 @router.post("/pillboxes/detect")
-async def detect_pillbox(
+def detect_pillbox(
     request: Request,
     photo: Annotated[UploadFile, File()],
     taken_at: Annotated[datetime | None, Form()] = None,
@@ -57,7 +59,7 @@ async def detect_pillbox(
     db: Session = Depends(get_db),
     settings: Settings = Depends(get_settings),
 ):
-    data = await _read_upload(photo, settings)
+    data = _read_upload(photo, settings)
     rs.ensure_daily_limit(db, settings, auth.family.id)
     p = rs.store_photo(
         db,
@@ -287,7 +289,7 @@ def put_schedule(
 
 
 @router.post("/refills", status_code=201)
-async def create_refill(
+def create_refill(
     request: Request,
     photo: Annotated[UploadFile, File()],
     taken_at: Annotated[datetime | None, Form()] = None,
@@ -296,7 +298,7 @@ async def create_refill(
     settings: Settings = Depends(get_settings),
 ):
     pb = _require_pillbox(db, auth.family.id)
-    data = await _read_upload(photo, settings)
+    data = _read_upload(photo, settings)
     rs.ensure_daily_limit(db, settings, auth.family.id)
     p = rs.store_photo(
         db,
