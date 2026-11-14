@@ -1,4 +1,4 @@
-"""이중 복용 의심을 보호자가 판정하면, 미리 비워진 칸의 같은 날 남은 복약 건을 닫는다.
+"""이중 복용 의심을 보호자가 "중복 복용"으로 판정하면, 미리 비워진 칸의 같은 날 남은 복약 건을 닫는다.
 
 닫지 않으면 그 칸의 복약 시각에 어르신이 빈 칸을 찍고, 판독이 "정상, 드심"으로 기록해 버린다.
 """
@@ -24,19 +24,21 @@ def _evening(client, fam):  # noqa: F811
     return next(e for e in items if e["slot"]["time_of_day"] == "evening")
 
 
-@pytest.mark.parametrize("verdict", ["taken", "not_taken", "acknowledged"])
-def test_verdict_closes_pre_emptied_cell_event(client, fam, reader, push, verdict):  # noqa: F811
+def test_double_verdict_closes_pre_emptied_cell_event(client, fam, reader, push):  # noqa: F811
     hid = _double_at_morning(client, fam, reader)
     assert _evening(client, fam)["state"] == "scheduled"
 
-    res = client.post(f"/api/v1/handoffs/{hid}/verdict", json={"verdict": verdict}, headers=fam.g)
+    res = client.post(
+        f"/api/v1/handoffs/{hid}/verdict", json={"verdict": "acknowledged"}, headers=fam.g
+    )
     assert res.status_code == 200, res.text
 
     ev = _evening(client, fam)
     assert ev["state"] == "done"
-    assert ev["outcome"] == "acknowledged"  # "드심"으로 적지 않는다
+    assert ev["outcome"] == "acknowledged"  # "정상 복용"으로 적지 않는다
     assert ev["outcome_source"] == "guardian"
     assert ev["taken_at"] is None
+    assert ev["handoff"] is None  # 화면은 인계 없는 acknowledged 를 "건너뜀"으로 보여 준다
 
     # 저녁 시각이 지나도 어르신께 묻지 않고, 인계도 생기지 않는다
     at(23, 19, 45)
@@ -45,6 +47,15 @@ def test_verdict_closes_pre_emptied_cell_event(client, fam, reader, push, verdic
     assert open_handoffs(client, fam) == []
     elder = next(e for e in today(client, fam.e)["items"] if e["slot"]["time_of_day"] == "evening")
     assert elder["state"] == "done"
+
+
+@pytest.mark.parametrize("verdict", ["taken", "not_taken"])
+def test_other_verdicts_keep_evening_open(client, fam, reader, verdict):  # noqa: F811
+    """정상 복용(AI가 잘못 봄)·미복용으로 판정하면 저녁은 그대로 묻는다."""
+    hid = _double_at_morning(client, fam, reader)
+    res = client.post(f"/api/v1/handoffs/{hid}/verdict", json={"verdict": verdict}, headers=fam.g)
+    assert res.status_code == 200, res.text
+    assert _evening(client, fam)["state"] == "scheduled"
 
 
 def test_before_verdict_evening_is_still_asked(client, fam, reader):  # noqa: F811
@@ -60,7 +71,9 @@ def test_other_days_cell_is_not_closed(client, fam, reader):  # noqa: F811
     reader.states = {"r0c4": "empty", "r0c5": "empty"}
     upload(client, fam, event_id(client, fam, "morning"))
     (h,) = open_handoffs(client, fam)
-    client.post(f"/api/v1/handoffs/{h['id']}/verdict", json={"verdict": "taken"}, headers=fam.g)
+    client.post(
+        f"/api/v1/handoffs/{h['id']}/verdict", json={"verdict": "acknowledged"}, headers=fam.g
+    )
     assert _evening(client, fam)["state"] == "scheduled"
 
 
@@ -68,6 +81,6 @@ def test_closing_wakes_elder_phone(client, fam, reader, push):  # noqa: F811
     client.put("/api/v1/devices/me/push-token", json={"push_token": "elder-tok"}, headers=fam.e)
     hid = _double_at_morning(client, fam, reader)
     push.sent.clear()
-    client.post(f"/api/v1/handoffs/{hid}/verdict", json={"verdict": "taken"}, headers=fam.g)
+    client.post(f"/api/v1/handoffs/{hid}/verdict", json={"verdict": "acknowledged"}, headers=fam.g)
     silent = [m for m in push.sent if m.silent]
     assert [m.push_token for m in silent] == ["elder-tok"]

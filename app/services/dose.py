@@ -23,13 +23,17 @@ from app.timeutil import at_kst, kst_date
 OPEN_STATES = ("asked", "retake_requested", "reminded")
 TIME_OF_DAY_KO = {"morning": "아침", "noon": "점심", "evening": "저녁", "bedtime": "취침"}
 
+# 보호자 판정은 세 가지로 통일한다 (사용자 결정 2026-11-14): 정상 복용(taken), 중복 복용(acknowledged), 미복용(not_taken).
+# acknowledged 는 예전에 "확인만 함"이었는데, 뜻이 모호해 "중복 복용"으로 쓴다 (저장 값은 그대로라 스키마 변경 없음).
+# 판단할 수 없으면 판정하지 않고 열어 둔다. 순서는 화면의 버튼 순서다
+_DOSE_VERDICTS = ["taken", "acknowledged", "not_taken"]
 ALLOWED_VERDICTS = {
-    "no_response": ["taken", "not_taken", "acknowledged"],
-    "unclear": ["taken", "not_taken"],
-    "unchanged": ["taken", "not_taken", "acknowledged"],
-    "double_suspected": ["taken", "not_taken", "acknowledged"],
+    "no_response": _DOSE_VERDICTS,
+    "unclear": _DOSE_VERDICTS,
+    "unchanged": _DOSE_VERDICTS,
+    "double_suspected": _DOSE_VERDICTS,
     "refill_unconfirmed": ["refilled", "not_refilled"],
-    "refill_overdue": ["taken", "not_taken", "acknowledged"],
+    "refill_overdue": _DOSE_VERDICTS,
 }
 
 # 보호자 푸시 문구 (보호자용이라 서버 템플릿, api.md 4.3)
