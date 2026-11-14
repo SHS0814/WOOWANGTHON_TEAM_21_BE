@@ -276,6 +276,34 @@ def _latest(readings) -> Reading | None:
     return next((r for r in reversed(readings) if r.error is None and r.cells), None)
 
 
+def _double_photo(db: Session, event: DoseEvent, handoff: Handoff | None) -> list:
+    """중복 복용 판정으로 건너뛴 건(자기 사진이 없음)에는 그 판정의 사진을 함께 보여 준다.
+
+    건너뛴 건은 인계 없이 보호자가 acknowledged 로 닫은 건이고, 닫힌 시각이 판정 시각과 같다
+    (routers/handoffs._close_pre_emptied). 어르신의 "나 약 먹었나?"에 두 건이 같은 사진으로 나온다.
+    """
+    if (
+        handoff is not None
+        or event.outcome != "acknowledged"
+        or event.outcome_source != "guardian"
+        or event.resolved_at is None
+    ):
+        return []
+    h = db.scalar(
+        select(Handoff)
+        .where(
+            Handoff.family_id == event.family_id,
+            Handoff.reason == "double_suspected",
+            Handoff.verdict == "acknowledged",
+            Handoff.verdict_at == event.resolved_at,
+        )
+        .limit(1)
+    )
+    reading = db.get(Reading, h.reading_id) if h is not None and h.reading_id else None
+    photo = db.get(Photo, reading.photo_id) if reading is not None else None
+    return [photo] if photo is not None else []
+
+
 def _event_dict(
     db: Session,
     settings: Settings,
@@ -291,6 +319,8 @@ def _event_dict(
     carried_over: bool,
 ) -> dict:
     latest = _latest(readings)
+    if not photos:
+        photos = _double_photo(db, event, handoff)
     asks = [event.scheduled_at] + [
         event.scheduled_at + timedelta(minutes=m) for m in settings.reask_offsets_min
     ]

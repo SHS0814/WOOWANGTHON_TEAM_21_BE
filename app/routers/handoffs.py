@@ -11,7 +11,7 @@ from app.clock import clock
 from app.config import Settings
 from app.deps import Auth, auth_guardian, get_db, get_settings
 from app.errors import ApiError, not_found
-from app.models import Device, DoseEvent, Handoff, Reading, ScheduleSlot
+from app.models import Device, DoseEvent, Handoff, Photo, Reading, ScheduleSlot
 from app.push import notify_elder_schedule_changed
 from app.serializers import base_url, handoff_out, person
 from app.services import dose as ds
@@ -107,7 +107,15 @@ def post_verdict(
         _resolve(event, body.verdict, auth.device.id, now)
     # 중복 복용으로 판정했을 때만 미리 비워진 칸의 건을 닫는다. 정상 복용(AI가 잘못 봄)·미복용이면 다음 건은 그대로 묻는다
     if h.reason == "double_suspected" and body.verdict == "acknowledged":
+        # 어르신의 "나 약 먹었나?"에 이 건과 건너뛴 건이 모두 "드셨어요"로, 같은 사진과 같은 시각으로 나오게 한다.
+        # 실제로 그 사진을 찍을 때 함께 드신 것이기 때문이다 (다시 드시지 않게 하는 것이 이 화면의 목적)
+        reading = db.get(Reading, h.reading_id) if h.reading_id else None
+        photo = db.get(Photo, reading.photo_id) if reading else None
+        when = photo.taken_at if photo else now
+        event.taken_at = event.taken_at or when
         closed = _close_pre_emptied(db, h, event, auth.device.id, now)
+        for other in closed:
+            other.taken_at = when
         if closed:
             # 어르신 폰이 닫힌 건의 알람을 지우도록 깨운다 (화면에는 아무것도 보이지 않는다)
             notify_elder_schedule_changed(db, request.app.state.push, auth.family.id)
