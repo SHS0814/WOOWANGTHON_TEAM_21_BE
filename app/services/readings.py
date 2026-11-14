@@ -25,7 +25,8 @@ def readings_today(db: Session, family_id: str) -> int:
 
 
 def over_daily_limit(db: Session, settings: Settings, family_id: str) -> bool:
-    return readings_today(db, family_id) >= settings.daily_reading_limit
+    limit = settings.daily_reading_limit
+    return limit > 0 and readings_today(db, family_id) >= limit
 
 
 def ensure_daily_limit(db: Session, settings: Settings, family_id: str) -> None:
