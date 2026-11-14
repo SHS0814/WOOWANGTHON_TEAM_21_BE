@@ -13,6 +13,7 @@ from app.config import Settings
 from app.deps import Auth, auth_any, auth_guardian, get_db, get_settings
 from app.errors import ApiError, not_found, validation
 from app.models import DoseEvent, Photo, Pillbox, Refill, ScheduleSlot
+from app.push import notify_elder_schedule_changed
 from app.reader import Layout
 from app.serializers import base_url, pillbox_out, refill_out, slot_out
 from app.services import readings as rs
@@ -256,7 +257,10 @@ class ScheduleIn(BaseModel):
 
 @router.put("/schedule")
 def put_schedule(
-    body: ScheduleIn, auth: Auth = Depends(auth_guardian), db: Session = Depends(get_db)
+    body: ScheduleIn,
+    request: Request,
+    auth: Auth = Depends(auth_guardian),
+    db: Session = Depends(get_db),
 ):
     pb = _require_pillbox(db, auth.family.id)
     cell_ids = {c["id"] for c in pb.layout["cells"]}
@@ -281,6 +285,8 @@ def put_schedule(
     from app.services.dose import sync_events
 
     sync_events(db, auth.family.id, now)
+    # 어르신 폰이 꺼져 있어도 바뀐 시각으로 알람을 다시 맞추게 한다
+    notify_elder_schedule_changed(db, request.app.state.push, auth.family.id)
     db.commit()
     return _schedule_out(db, auth.family.id)
 

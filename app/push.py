@@ -25,6 +25,8 @@ class PushMessage:
     title: str
     body: str
     data: dict = field(default_factory=dict)
+    # True 면 화면에 보이지 않는 데이터 전용 푸시 (어르신 폰이 알람을 다시 맞추게 깨우는 용도)
+    silent: bool = False
 
 
 class PushSender(Protocol):
@@ -71,6 +73,29 @@ def notify_guardians(
     after_commit(db, lambda: sender.send(messages))
 
 
+def notify_elder_schedule_changed(db: Session, sender: PushSender, family_id: str) -> None:
+    """복약 시각이 바뀌었다고 어르신 기기에 데이터 전용 푸시를 보낸다. **커밋이 성공한 뒤에** 보낸다.
+
+    어르신 폰의 복약 알람은 폰이 스스로 예약하는 로컬 알람이라, 앱이 꺼져 있으면 바뀐 시각을 모른다.
+    이 푸시를 받은 앱이 백그라운드에서 일정을 다시 읽어 알람을 다시 맞춘다. 화면에는 아무것도 보이지 않는다.
+    푸시가 닿지 않아도 앱을 열면 다시 맞춰지므로 실패는 로그만 남긴다. 호출한 쪽은 이후에 db.commit() 한다.
+    """
+    elders = db.scalars(
+        select(Device).where(
+            Device.family_id == family_id,
+            Device.role == "elder",
+            Device.revoked_at.is_(None),
+        )
+    ).all()
+    messages = [
+        PushMessage(e.id, e.push_token, "", "", {"type": "schedule_changed"}, silent=True)
+        for e in elders
+        if e.push_token  # 토큰을 등록하지 않은 기기(옛 앱)는 보낼 곳이 없다
+    ]
+    if messages:
+        after_commit(db, lambda: sender.send(messages))
+
+
 class ExpoPushSender:
     """Expo Push API 로 보낸다 (https://docs.expo.dev/push-notifications/sending-notifications/).
 
@@ -91,7 +116,8 @@ class ExpoPushSender:
         self.sent: list[PushMessage] = []
 
     def send(self, messages: list[PushMessage]) -> None:
-        targets = [m for m in messages if m.push_token]
+        # 데이터 전용 푸시는 FCM 직접 발송에서만 지원한다
+        targets = [m for m in messages if m.push_token and not m.silent]
         for i in range(0, len(targets), 100):  # Expo 는 한 번에 최대 100건
             batch = targets[i : i + 100]
             body = [
@@ -212,6 +238,20 @@ class FcmPushSender:
         return self._access_token
 
     def _payload(self, m: PushMessage) -> dict:
+        data = {
+            k: v if isinstance(v, str) else json.dumps(v, ensure_ascii=False)
+            for k, v in m.data.items()
+        }
+        if m.silent:
+            # notification 을 넣지 않아야 앱이 꺼져 있어도 앱의 백그라운드 처리로 전달된다
+            return {
+                "validate_only": self._validate_only,
+                "message": {
+                    "token": m.push_token,
+                    "data": data,
+                    "android": {"priority": "HIGH"},
+                },
+            }
         return {
             "validate_only": self._validate_only,
             "message": {
