@@ -59,7 +59,8 @@ uv run ruff check . && uv run ruff format --check .
 | 변수 | 기본 | 뜻 |
 |---|---|---|
 | `READER_LAYOUT`, `READER_CELLS` | `mock` | 판독기 (`mock` / `claude[:모델]` / `openai[:모델]` / `ollama[:모델]`) |
-| `OPENAI_API_KEY`, `OPENAI_MODEL` | (비움), `gpt-6-luna` | GPT 판독기. 키가 없으면 서버는 뜨고 모든 판독이 애매(재촬영 → 인계)로 처리된다 |
+| `OPENAI_API_KEY`, `OPENAI_MODEL` | (비움), `gpt-6-luna` | GPT 판독기. 키가 없으면 서버는 뜨고 모든 판독이 애매(재촬영 → 인계)로 처리된다. 심사용 서버는 `.env` 에서 `gpt-6.1-sol` 을 쓴다 |
+| `DAILY_READING_LIMIT` | `0` | 가족당 하루 판독 횟수 한도. `0` 이면 제한 없음. 비용을 막으려면 양수로 둔다 |
 | `OPENAI_REASONING_EFFORT` | (비움) | GPT 추론 강도. 비우면 모델 기본값. 낮추면 빨라지지만 시험에서 '약 있는데 빈 칸' 쪽 불일치가 늘었다 |
 | `PUBLIC_BASE_URL` | (비움) | 앱에 내려주는 사진 URL 앞부분 (Cloudflare Tunnel 주소) |
 | `JOBS_ENABLED` | `true` | 1분마다 복약 건 열기·무응답 인계·요약 푸시·사진 정리 |
@@ -108,6 +109,15 @@ uv run python -m harness.run --labels harness/data/real/labels.json \
 | Anthropic Claude API | 약통 판독 (선택, 사진이 Anthropic 으로 전송됨) |
 | Ollama + 오픈소스 VLM | 약통 판독 (선택, 로컬) |
 | PostgreSQL | DB (예정) |
+
+## 판독 뒤 분류 규칙 (요약)
+
+판독기는 칸마다 `full / empty / unclear` 와 사진 각도만 답하고, 정상·인계는 서버 규칙이 정한다 (`app/services/classify.py`, `app/services/dose.py`). 자세한 내용은 DOCS `docs/design/backend.md` 5·6장.
+
+- 비스듬히 찍은 사진(`camera_angle=oblique`)은 칸 판독과 상관없이 다시 찍기로 돌린다
+- 기대상 차 있어야 할 다른 칸이 비어 보이면 이중 복용 의심으로 보호자에게 넘긴다
+- **약통을 채운 것이 사진에 보이면**(대상 칸 외 모든 칸이 차 있고, 그중 비어 있어야 할 칸이 있음) 보호자에게 묻지 않고 그 사진을 새 기준선으로 삼는다 (`refills.source = auto_refill`, 2026-11-14 사용자 결정). 그 전에는 "약통을 채우셨나요?" 확인 요청(`refill_unconfirmed`)을 보냈다. DOCS `backend.md` 5.4 는 예전 동작을 적고 있다
+- 채우지 않은 빈 약통의 빈 칸은 드신 것으로 기록하지 않는다 (`refill_overdue` 인계)
 
 ## 심사용 접근 정보
 
