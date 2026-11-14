@@ -54,7 +54,8 @@ class Settings(BaseSettings):
     reader_timeout_s: float = 60.0
     # "정상" 판정 신뢰도 기준. 임시값, 정확도 검증 후 다시 정한다 (backend.md 7.1)
     normal_confidence: float = 0.9
-    daily_reading_limit: int = 30
+    # 가족당 하루 판독 횟수 한도. 0 이면 제한 없음 (기본). 비용을 막으려면 양수로 둔다
+    daily_reading_limit: int = 0
 
     # 재질문·인계 시간값. 앱은 이 값을 GET /me 로 내려받는다 (R-007 C5)
     reask_offsets_min: list[int] = Field(default_factory=lambda: [10, 20])

@@ -223,3 +223,12 @@ def test_baseline_reads_use_baseline_purpose(client, reader):
     f.register_pillbox()
     client.post("/api/v1/refills", files=_files(), headers=f.g)
     assert reader.purposes == ["baseline", "baseline"]
+
+
+def test_daily_reading_limit_zero_means_unlimited(client, settings):
+    settings.daily_reading_limit = 0
+    f = Family(client)
+    for _ in range(3):
+        assert (
+            client.post("/api/v1/pillboxes/detect", files=_files(), headers=f.g).status_code == 200
+        )
