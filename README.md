@@ -65,7 +65,7 @@ uv run ruff check . && uv run ruff format --check .
 | `PUBLIC_BASE_URL` | (비움) | 앱에 내려주는 사진 URL 앞부분 (Cloudflare Tunnel 주소) |
 | `JOBS_ENABLED` | `true` | 1분마다 복약 건 열기·무응답 인계·요약 푸시·사진 정리 |
 | `EXPO_PUSH_ENABLED` | `false` | 보호자 푸시 실제 발송. 끄면 로그만 남긴다 |
-| `DEMO_MODE` | `false` | 시연 트리거 `POST /api/v1/dev/dose-events` (데모 가족만). 심사용 서버에서만 켠다 |
+| `DEMO_MODE` | `false` | 시연 트리거 `POST /api/v1/dev/dose-events` 와 시연 초기화 `POST /api/v1/dev/reset` (데모 가족만. 초기화는 그 가족의 복약 기록·인계·복약 사진을 지우고 연결·약통·일정은 남긴다). 심사용 서버에서만 켠다 |
 
 API 문서는 서버를 띄운 뒤 `/docs` 에서도 볼 수 있다.
 

@@ -502,3 +502,74 @@ def test_stuck_reading_state_recovers(client, fam, reader):
     assert res.status_code == 409 and res.json()["error"]["code"] == "reading_in_progress"
     at(23, 8, 8)
     assert today(client, fam.e)["items"][0]["state"] == "asked"
+
+
+# ---------- 시연 초기화 (POST /dev/reset) ----------
+
+
+def test_demo_reset_clears_records_and_allows_replay(client, settings, reader, push):
+    settings.demo_mode = True
+    f = Family(client, is_demo=True)
+    f.register_pillbox()
+    f.put_schedule(week_schedule())
+    at(23, 8, 5)
+    fri = [
+        s for s in client.get("/api/v1/schedule", headers=f.g).json()["slots"] if s["weekday"] == 4
+    ]
+    am = next(s for s in fri if s["time_of_day"] == "morning")
+    pm = next(s for s in fri if s["time_of_day"] == "evening")
+    ev = client.post("/api/v1/dev/dose-events", json={"slot_id": am["id"]}, headers=f.e).json()
+    reader.states = {"r0c4": "empty"}
+    assert upload(client, f, ev["id"]).json()["result"] == "recorded"
+    ev2 = client.post("/api/v1/dev/dose-events", json={"slot_id": pm["id"]}, headers=f.e).json()
+    reader.states = {"r0c4": "empty", "r1c4": "empty", "r1c5": "empty"}
+    assert upload(client, f, ev2["id"]).json()["result"] == "guardian_notified"
+    assert len(open_handoffs(client, f)) == 1
+
+    assert client.post("/api/v1/dev/reset", headers=f.e).status_code == 204
+    assert open_handoffs(client, f) == []
+    # 아직 오지 않은 시각(저녁)만 예정으로 다시 생긴다. 지난 시각(아침)은 다시 만들지 않는다 (무응답 인계 방지)
+    items = today(client, f.g)["items"]
+    assert [(i["slot"]["time_of_day"], i["state"], i["outcome"]) for i in items] == [
+        ("evening", "scheduled", None)
+    ]
+    st = client.get("/api/v1/pillboxes/current", headers=f.g).json()
+    assert st["last_refill"]["source"] == "registration"
+    assert st["refill_status"]["remaining_cells"] == 14
+    # 같은 시연을 처음부터 다시 할 수 있다
+    ev = client.post("/api/v1/dev/dose-events", json={"slot_id": am["id"]}, headers=f.e)
+    assert ev.status_code == 201
+    reader.states = {"r0c4": "empty"}
+    assert upload(client, f, ev.json()["id"]).json()["result"] == "recorded"
+
+
+def test_demo_reset_removes_auto_refill_baseline(client, settings, reader):
+    settings.demo_mode = True
+    f = Family(client, is_demo=True)
+    f.register_pillbox()
+    f.put_schedule(week_schedule())
+    cur = client.get("/api/v1/pillboxes/current", headers=f.g).json()["last_refill"]
+    client.put(
+        f"/api/v1/refills/{cur['id']}/baseline",
+        json={
+            "cells": [{"cell_id": c["cell_id"], "state": "empty"} for c in cur["baseline_cells"]]
+        },
+        headers=f.g,
+    )
+    at(23, 8, 5)
+    slots = client.get("/api/v1/schedule", headers=f.g).json()["slots"]
+    am = next(s for s in slots if s["weekday"] == 4 and s["time_of_day"] == "morning")
+    ev = client.post("/api/v1/dev/dose-events", json={"slot_id": am["id"]}, headers=f.e).json()
+    reader.states = {"r0c4": "empty"}
+    assert upload(client, f, ev["id"]).json()["result"] == "recorded"
+    cur = client.get("/api/v1/pillboxes/current", headers=f.g).json()
+    assert cur["last_refill"]["source"] == "auto_refill"
+    assert client.post("/api/v1/dev/reset", headers=f.g).status_code == 204
+    cur = client.get("/api/v1/pillboxes/current", headers=f.g).json()
+    assert cur["last_refill"]["source"] == "registration"
+
+
+def test_demo_reset_is_hidden_for_normal_family(client, fam, settings):
+    assert client.post("/api/v1/dev/reset", headers=fam.e).status_code == 404
+    settings.demo_mode = True
+    assert client.post("/api/v1/dev/reset", headers=fam.e).status_code == 404

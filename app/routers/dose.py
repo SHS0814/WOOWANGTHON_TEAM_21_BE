@@ -3,21 +3,21 @@
 from datetime import date, datetime
 from typing import Annotated, Literal
 
-from fastapi import APIRouter, Depends, File, Form, Query, Request, UploadFile
+from fastapi import APIRouter, Depends, File, Form, Query, Request, Response, UploadFile
 from pydantic import BaseModel
-from sqlalchemy import func, or_, select
+from sqlalchemy import delete, func, or_, select, update
 from sqlalchemy.orm import Session
 
 from app.clock import clock
 from app.config import Settings
 from app.deps import Auth, auth_any, auth_elder, auth_guardian, get_db, get_settings
 from app.errors import ApiError, not_found, validation
-from app.models import DoseEvent, Handoff, Photo, ScheduleSlot
+from app.models import DoseEvent, Handoff, Photo, Reading, Refill, ScheduleSlot
 from app.serializers import base_url, elder_notification_warning, event_out, events_out
 from app.services import dose as ds
 from app.services import readings as rs
 from app.services.expected import active_pillbox, latest_refill, refill_status
-from app.storage import load
+from app.storage import full_path, load
 from app.timeutil import iso, kst_date
 
 router = APIRouter()
@@ -287,6 +287,50 @@ def simulate_dose_event(
     event.state = "asked"
     db.commit()
     return event_out(db, settings, base_url(request, settings), event, guardian=auth.is_guardian)
+
+
+@router.post("/dev/reset", status_code=204)
+def reset_demo_records(
+    request: Request,
+    auth: Auth = Depends(auth_any),
+    db: Session = Depends(get_db),
+    settings: Settings = Depends(get_settings),
+):
+    """시연 초기화: 이 데모 가족의 복약 기록을 모두 지워 시연을 처음부터 다시 할 수 있게 한다.
+
+    DEMO_MODE 와 데모 가족이 아니면 경로가 없는 것처럼 404. 지우는 것: 복약 건, 인계, 복약 사진과 그 판독,
+    복약 사진으로 만든 기준선(자동 채움·리필 확인). 남는 것: 가족·기기 연결, 약통, 일정, 설정,
+    약통 등록·보호자 채우기 때의 기준선. 그래서 약통은 마지막으로 등록하거나 채운 상태로 돌아간다.
+    """
+    if not (settings.demo_mode and auth.family.is_demo):
+        raise not_found()
+    fid = auth.family.id
+    now = clock.now()
+    dose_readings = select(Reading.id).where(
+        Reading.family_id == fid, Reading.dose_event_id.is_not(None)
+    )
+    photos = list(
+        db.scalars(select(Photo).where(Photo.family_id == fid, Photo.dose_event_id.is_not(None)))
+    )
+    db.execute(delete(Handoff).where(Handoff.family_id == fid))
+    db.execute(
+        delete(Refill).where(Refill.family_id == fid, Refill.baseline_reading_id.in_(dose_readings))
+    )
+    db.execute(delete(Reading).where(Reading.family_id == fid, Reading.dose_event_id.is_not(None)))
+    db.execute(delete(Photo).where(Photo.family_id == fid, Photo.dose_event_id.is_not(None)))
+    db.execute(delete(DoseEvent).where(DoseEvent.family_id == fid))
+    # 오늘 이미 지난 시각의 건이 예약 작업으로 다시 생겨 무응답 인계가 되지 않게, 일정을 방금 저장한 것처럼 둔다
+    # (sync_events: 그 시각이 지난 뒤에 저장한 칸은 오늘 건을 만들지 않는다). 지난 시간대는 시연 트리거로 연다
+    db.execute(
+        update(ScheduleSlot)
+        .where(ScheduleSlot.family_id == fid, ScheduleSlot.active)
+        .values(created_at=now)
+    )
+    request.app.state.mock_scenarios.pop(fid, None)
+    db.commit()
+    for p in photos:
+        full_path(settings, p).unlink(missing_ok=True)
+    return Response(status_code=204)
 
 
 class MockScenarioIn(BaseModel):
