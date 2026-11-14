@@ -294,51 +294,25 @@ def test_missed_cell_is_ignored_later(client, fam, reader, push):
     assert cells["r0c4"]["expected"] == "ignored" and cells["r0c4"]["attention"] is None
 
 
-def test_refill_suspected_creates_one_check(client, fam, reader, push):
-    """C1: 리필 기록 없이 대상 칸 외 전부 full → 확인 요청 1회, 복약은 정상."""
+def test_refill_suspected_adopts_new_baseline(client, fam, reader, push):
+    """리필 기록 없이 대상 칸 외 전부 full → 묻지 않고 그 사진을 새 기준선으로 (사용자 결정 2026-11-14)."""
     at(23, 8, 5)
     take(client, fam, reader, "morning", ["r0c4"])
     at(23, 19, 5)
-    reader.states = {"r1c4": "empty"}  # r0c4 가 다시 차 보임 = 채운 것 같음
+    reader.states = {"r1c4": "empty"}  # r0c4 가 다시 차 보임 = 채운 것
     res = upload(client, fam, event_id(client, fam, "evening")).json()
     assert res["result"] == "recorded"
-    hs = open_handoffs(client, fam)
-    assert [h["reason"] for h in hs] == ["refill_unconfirmed"]
-    assert hs[0]["allowed_verdicts"] == ["refilled", "not_refilled"]
-    assert hs[0]["dose_event"]["state"] == "done"  # 묶이지 않음
-    assert [m.data["reason"] for m in push.sent] == ["refill_unconfirmed"]
-    # 다음 날 같은 상황이어도 열려 있으면 다시 만들지 않음
-    at(24, 8, 5)
-    reader.states = {"r0c5": "empty"}
-    upload(client, fam, event_id(client, fam, "morning"))
-    assert len(open_handoffs(client, fam)) == 1 and len(push.sent) == 1
-    # "네" → 그 사진이 새 기준선
-    res = client.post(
-        f"/api/v1/handoffs/{hs[0]['id']}/verdict", json={"verdict": "refilled"}, headers=fam.g
-    )
-    assert res.status_code == 200
+    assert open_handoffs(client, fam) == [] and push.sent == []
     cur = client.get("/api/v1/pillboxes/current", headers=fam.g).json()
-    assert cur["last_refill"]["source"] == "refill_check"
-
-
-def test_refill_not_refilled_ignores_full_cells(client, fam, reader, push):
-    at(23, 8, 5)
-    take(client, fam, reader, "morning", ["r0c4"])
-    at(23, 19, 5)
-    reader.states = {"r1c4": "empty"}
-    upload(client, fam, event_id(client, fam, "evening"))
-    h = open_handoffs(client, fam)[0]
-    client.post(
-        f"/api/v1/handoffs/{h['id']}/verdict", json={"verdict": "not_refilled"}, headers=fam.g
-    )
+    assert cur["last_refill"]["source"] == "auto_refill"
+    base = {c["cell_id"]: c["state"] for c in cur["last_refill"]["baseline_cells"]}
+    assert base["r1c4"] == "empty" and base["r0c4"] == "full"
+    # 다음 날 아침: 새 기준선으로 평소처럼 판단한다
     at(24, 8, 5)
     reader.states = {"r0c5": "empty", "r1c4": "empty"}
     res = upload(client, fam, event_id(client, fam, "morning")).json()
     assert res["result"] == "recorded"
-    assert open_handoffs(client, fam) == []  # 같은 원인으로 다시 묻지 않음 (R-010 3번)
-    g = today(client, fam.g)["items"][0]
-    cells = {c["cell_id"]: c for c in g["latest_reading"]["cells"]}
-    assert cells["r0c4"]["expected"] == "ignored"
+    assert open_handoffs(client, fam) == [] and push.sent == []
 
 
 # ---------- R-014: 이번 주기에 이미 쓴 칸이 다시 대상 칸 ----------
@@ -366,42 +340,62 @@ def test_already_used_cell_empty_is_never_recorded_refill_overdue(client, fam, r
     assert push.sent[-1].data["reason"] == "refill_overdue"
 
 
-def test_already_used_cell_with_refill_suspicion_bound_to_check(client, fam, reader, push):
+def test_already_used_cell_refilled_is_recorded_automatically(client, fam, reader, push):
     _use_friday(client, fam, reader)
-    # 대상 칸만 비고 나머지 다 차 있음 → 보호자가 채운 것 같음
+    # 대상 칸만 비고 나머지 다 차 있음 → 채운 약통. 묻지 않고 새 기준선으로 삼고 정상 기록한다
     reader.states = {"r0c4": "empty"}
     res = upload(client, fam, event_id(client, fam, "morning")).json()
-    assert res["result"] == "guardian_notified"  # recorded 아님 (원칙 5)
-    hs = open_handoffs(client, fam)
-    assert [h["reason"] for h in hs] == ["refill_unconfirmed"]
-    assert hs[0]["dose_event"]["state"] == "handed_off"
-    assert hs[0]["dose_event"]["handoff"]["id"] == hs[0]["id"]
-    res = client.post(
-        f"/api/v1/handoffs/{hs[0]['id']}/verdict", json={"verdict": "refilled"}, headers=fam.g
-    )
-    ev = res.json()["dose_event"]
-    assert ev["outcome"] == "taken" and ev["outcome_source"] == "guardian"
+    assert res["result"] == "recorded"
+    ev = res["dose_event"]
+    assert ev["outcome"] == "taken"
+    assert open_handoffs(client, fam) == [] and push.sent == []
     cur = client.get("/api/v1/pillboxes/current", headers=fam.g).json()
-    assert cur["last_refill"]["source"] == "refill_check"
+    assert cur["last_refill"]["source"] == "auto_refill"
 
 
-def test_already_used_not_refilled_waits_for_verdict(client, fam, reader, push):
+def test_already_used_cell_refilled_but_unclear_is_not_recorded(client, fam, reader):
+    """채운 약통이어도 대상 칸 신뢰도가 낮으면 정상으로 기록하지 않는다 (원칙 5)."""
     _use_friday(client, fam, reader)
     reader.states = {"r0c4": "empty"}
-    eid = event_id(client, fam, "morning")
-    upload(client, fam, eid)
-    h = open_handoffs(client, fam)[0]
-    n_push = len(push.sent)
-    client.post(
-        f"/api/v1/handoffs/{h['id']}/verdict", json={"verdict": "not_refilled"}, headers=fam.g
+    reader.confidence = {"r0c4": 0.5}
+    res = upload(client, fam, event_id(client, fam, "morning")).json()
+    assert res["result"] == "retake"
+
+
+def test_registered_empty_then_filled_is_recorded(client, fam, reader, push):
+    """빈 약통으로 등록한 뒤 채우고 드신 경우: 첫 복약 사진을 기준선으로 삼고 정상 기록한다."""
+    cur = client.get("/api/v1/pillboxes/current", headers=fam.g).json()
+    refill = cur["last_refill"]
+    res = client.put(
+        f"/api/v1/refills/{refill['id']}/baseline",
+        json={
+            "cells": [{"cell_id": c["cell_id"], "state": "empty"} for c in refill["baseline_cells"]]
+        },
+        headers=fam.g,
     )
-    hs = open_handoffs(client, fam)
-    assert [x["reason"] for x in hs] == ["refill_overdue"]
-    assert hs[0]["dose_event"]["state"] == "handed_off" and len(push.sent) == n_push
-    res = client.post(
-        f"/api/v1/handoffs/{hs[0]['id']}/verdict", json={"verdict": "not_taken"}, headers=fam.g
+    assert res.status_code == 200, res.text
+    at(23, 8, 5)
+    reader.states = {"r0c4": "empty"}
+    res = upload(client, fam, event_id(client, fam, "morning")).json()
+    assert res["result"] == "recorded" and open_handoffs(client, fam) == []
+
+
+def test_registered_empty_and_never_filled_is_not_recorded(client, fam, reader, push):
+    """빈 약통으로 등록하고 채우지 않았으면 빈 칸을 드신 것으로 기록하지 않는다."""
+    cur = client.get("/api/v1/pillboxes/current", headers=fam.g).json()
+    refill = cur["last_refill"]
+    client.put(
+        f"/api/v1/refills/{refill['id']}/baseline",
+        json={
+            "cells": [{"cell_id": c["cell_id"], "state": "empty"} for c in refill["baseline_cells"]]
+        },
+        headers=fam.g,
     )
-    assert res.json()["dose_event"]["outcome"] == "not_taken"
+    at(23, 8, 5)
+    reader.states = {c["cell_id"]: "empty" for c in refill["baseline_cells"]}
+    res = upload(client, fam, event_id(client, fam, "morning")).json()
+    assert res["result"] == "guardian_notified"
+    assert [h["reason"] for h in open_handoffs(client, fam)] == ["refill_overdue"]
 
 
 def test_already_used_low_confidence_or_retake_never_recorded(client, fam, reader):

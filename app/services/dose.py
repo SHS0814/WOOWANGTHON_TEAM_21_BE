@@ -320,30 +320,33 @@ def process_photo(
     else:
         c = classify(result, expected, slot.cell_id, settings.normal_confidence)
         reading.cells = c.cells
+        if c.refill_suspected:
+            # 채운 것이 사진에 보인다 (대상 칸 외 모두 차 있고, 그중 비어 있어야 할 칸이 있음).
+            # 보호자에게 묻지 않고 이 사진을 새 기준선으로 삼는다 (사용자 결정 2026-11-14.
+            # 그 전에는 "약통을 채우셨나요?" 확인 요청을 보냈다, backend.md 5.4).
+            new_baseline_from_reading(
+                db,
+                family.id,
+                reading,
+                photo.uploaded_by_device_id,
+                pillbox.id,
+                source="auto_refill",
+            )
+            if c.kind == "already_used":
+                # 이번 주기에 이미 쓴 칸이었지만 방금 채운 약통이다. 채운 직후(모두 참)를 기대 상태로 다시 분류한다
+                fresh = dict.fromkeys(layout.cell_ids(), "full")
+                c = classify(result, fresh, slot.cell_id, settings.normal_confidence)
+                reading.cells = c.cells
         kind = c.kind
         reading.classification = "unclear" if kind == "already_used" else kind
-        if c.refill_suspected and kind != "already_used":
-            _maybe_refill_check(db, push, family, event, refill, reading, now)
 
     if kind == "already_used":
         # R-014: 이번 주기에 이미 쓴 칸. 정상으로 기록하지 않는다
         if late_handoff is not None:
             late_handoff.late_photo = True
             return UploadOutcome("guardian_notified", is_mock)
-        if c.refill_suspected:
-            pending = _open_refill_check(db, family.id, refill)
-            create_handoff(
-                db,
-                push,
-                family,
-                event,
-                "refill_unconfirmed",
-                now,
-                reading=reading,
-                send_push=pending is None,
-            )
-        else:
-            create_handoff(db, push, family, event, "refill_overdue", now, reading=reading)
+        # 채운 것이 보였으면 위에서 새 기준선으로 바꿔 다시 분류했다. 여기 오는 건은 채우지 않은 약통이다
+        create_handoff(db, push, family, event, "refill_overdue", now, reading=reading)
         return UploadOutcome("guardian_notified", is_mock)
 
     if kind == "normal":
@@ -389,40 +392,15 @@ def process_photo(
     return handoff("unchanged", reading)
 
 
-def _open_refill_check(db: Session, family_id: str, refill: Refill) -> Handoff | None:
-    return db.scalar(
-        select(Handoff)
-        .where(
-            Handoff.family_id == family_id,
-            Handoff.reason == "refill_unconfirmed",
-            Handoff.verdict.is_(None),
-            Handoff.notified_at >= refill.created_at,
-        )
-        .limit(1)
-    )
-
-
-def _maybe_refill_check(
-    db: Session,
-    push: PushSender,
-    family: Family,
-    event: DoseEvent,
-    refill: Refill,
-    reading: Reading,
-    now: datetime,
-) -> None:
-    """리필 미기록 의심 확인 요청 1회 (C1). 열려 있으면 다시 만들지 않는다 (C2)."""
-    if _open_refill_check(db, family.id, refill) is not None:
-        return
-    create_handoff(
-        db, push, family, event, "refill_unconfirmed", now, reading=reading, binds_event=False
-    )
-
-
 def new_baseline_from_reading(
-    db: Session, family_id: str, reading: Reading, device_id: str, pillbox_id: str
+    db: Session,
+    family_id: str,
+    reading: Reading,
+    device_id: str,
+    pillbox_id: str,
+    source: str = "refill_check",
 ) -> Refill:
-    """리필 확인 "네": 그 사진을 새 기준선으로 (source refill_check)."""
+    """그 사진을 새 기준선으로. source: refill_check(리필 확인 "네") | auto_refill(복약 사진에서 자동)."""
     photo = db.get(Photo, reading.photo_id)
     refill = Refill(
         family_id=family_id,
@@ -440,7 +418,7 @@ def new_baseline_from_reading(
             for c in reading.cells
         ],
         ignored_cells=[],
-        source="refill_check",
+        source=source,
     )
     db.add(refill)
     return refill

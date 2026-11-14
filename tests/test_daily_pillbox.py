@@ -166,20 +166,14 @@ def test_daily_without_refill_goes_refill_overdue_every_dose(client, day, reader
     assert res["dose_event"]["outcome"] == "taken"
 
 
-def test_daily_refilled_but_not_registered_asks_guardian(client, day, reader):
+def test_daily_refilled_but_not_registered_adopts_baseline(client, day, reader):
     use_friday(client, day, reader)
-    # 보호자가 채웠지만 등록하지 않음: 아침 칸만 비고 나머지 차 있음 → 리필 확인 요청에 묶임
+    # 채웠지만 기록하지 않음: 아침 칸만 비고 나머지 차 있음 → 묻지 않고 그 사진을 새 기준선으로 (2026-11-14)
     at(24, 8, 5)
     reader.states = {"r0c0": "empty"}
     res = upload(client, day, event_id(client, day, "morning")).json()
-    assert res["result"] == "guardian_notified"
-    hs = open_handoffs(client, day)
-    assert [h["reason"] for h in hs] == ["refill_unconfirmed"]
-    res = client.post(
-        f"/api/v1/handoffs/{hs[0]['id']}/verdict", json={"verdict": "refilled"}, headers=day.g
-    )
-    assert res.status_code == 200, res.text
-    # 그 사진이 새 기준선 → 아침은 보호자 판정 taken, 점심부터 정상
+    assert res["result"] == "recorded"
+    assert open_handoffs(client, day) == []
     st = status(client, day)
     assert st["remaining_cells"] == 2 and covered(st) == ("2026-10-24", "evening")
     at(24, 12, 5)

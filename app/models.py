@@ -158,7 +158,9 @@ class Refill(Base):
     baseline_cells: Mapped[list] = mapped_column(JSON)
     # 리필 확인 "아니요"로 비교에서 뺀 칸 (R-010 3번)
     ignored_cells: Mapped[list] = mapped_column(JSON, default=list)
-    source: Mapped[str] = mapped_column(String(16))  # registration | guardian_photo | refill_check
+    source: Mapped[str] = mapped_column(
+        String(16)
+    )  # registration | guardian_photo | refill_check | auto_refill
     created_at: Mapped[datetime] = mapped_column(UTCDateTime, default=_now)
 
 
