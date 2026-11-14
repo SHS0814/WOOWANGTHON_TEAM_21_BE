@@ -37,8 +37,14 @@ def test_double_verdict_closes_pre_emptied_cell_event(client, fam, reader, push)
     assert ev["state"] == "done"
     assert ev["outcome"] == "acknowledged"  # "정상 복용"으로 적지 않는다
     assert ev["outcome_source"] == "guardian"
-    assert ev["taken_at"] is None
     assert ev["handoff"] is None  # 화면은 인계 없는 acknowledged 를 "건너뜀"으로 보여 준다
+
+    # 어르신의 "나 약 먹었나?"에는 아침·저녁이 같은 사진, 같은 시각으로 "기록 있음"으로 나온다
+    elder = {e["slot"]["time_of_day"]: e for e in today(client, fam.e)["items"]}
+    morning, evening = elder["morning"], elder["evening"]
+    assert morning["elder_status"] == evening["elder_status"] == "recorded"
+    assert morning["taken_at"] == evening["taken_at"] is not None
+    assert [p["id"] for p in evening["photos"]] == [morning["photos"][-1]["id"]]
 
     # 저녁 시각이 지나도 어르신께 묻지 않고, 인계도 생기지 않는다
     at(23, 19, 45)
