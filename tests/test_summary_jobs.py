@@ -115,7 +115,6 @@ def test_expo_sender_batches_and_skips_missing_tokens():
             "title": "t",
             "body": "b",
             "data": {"type": "x"},
-            "sound": "default",
             "priority": "high",
         }
     ]

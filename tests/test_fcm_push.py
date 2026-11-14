@@ -143,8 +143,7 @@ def test_send_payload_and_signed_assertion(sa_file, rsa_key):
             "android": {
                 "priority": "HIGH",
                 "notification": {
-                    "channel_id": "guardian",
-                    "sound": "default",
+                    "channel_id": "guardian-quiet",
                     "notification_priority": "PRIORITY_HIGH",
                     "visibility": "PUBLIC",
                 },

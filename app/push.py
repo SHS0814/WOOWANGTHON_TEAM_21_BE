@@ -126,7 +126,6 @@ class ExpoPushSender:
                     "title": m.title,
                     "body": m.body,
                     "data": m.data,
-                    "sound": "default",
                     "priority": "high",
                 }
                 for m in batch
@@ -166,7 +165,7 @@ class FcmPushSender:
         self,
         service_account_file: str,
         *,
-        channel_id: str = "guardian",
+        channel_id: str = "guardian-quiet",
         forget_token: Callable[[str, str], None] | None = None,
         validate_only: bool = False,
         timeout_s: float = 5.0,
@@ -266,8 +265,8 @@ class FcmPushSender:
                 "android": {
                     "priority": "HIGH",
                     "notification": {
+                        # 소리는 넣지 않는다 (사용자 결정 2026-11-14: 진동과 화면으로만 알린다). 채널도 소리 없는 채널이다
                         "channel_id": self._channel_id,
-                        "sound": "default",
                         "notification_priority": "PRIORITY_HIGH",
                         "visibility": "PUBLIC",
                     },
