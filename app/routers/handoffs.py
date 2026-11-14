@@ -11,7 +11,8 @@ from app.clock import clock
 from app.config import Settings
 from app.deps import Auth, auth_guardian, get_db, get_settings
 from app.errors import ApiError, not_found
-from app.models import Device, DoseEvent, Handoff, Reading
+from app.models import Device, DoseEvent, Handoff, Reading, ScheduleSlot
+from app.push import notify_elder_schedule_changed
 from app.serializers import base_url, handoff_out, person
 from app.services import dose as ds
 from app.services.expected import active_pillbox, latest_refill
@@ -104,6 +105,11 @@ def post_verdict(
         _refill_answer(db, request, auth, h, event, now)
     elif h.binds_event:
         _resolve(event, body.verdict, auth.device.id, now)
+    if h.reason == "double_suspected":
+        closed = _close_pre_emptied(db, h, event, auth.device.id, now)
+        if closed:
+            # 어르신 폰이 닫힌 건의 알람을 지우도록 깨운다 (화면에는 아무것도 보이지 않는다)
+            notify_elder_schedule_changed(db, request.app.state.push, auth.family.id)
     db.commit()
     return handoff_out(db, settings, base_url(request, settings), h, detail=True)
 
@@ -121,6 +127,46 @@ def _resolve(event: DoseEvent, outcome: str, device_id: str, now) -> None:
         event.taken_at = event.taken_at or now
     elif outcome == "not_taken":
         event.taken_at = None
+
+
+def _close_pre_emptied(
+    db: Session, h: Handoff, event: DoseEvent, device_id: str, now
+) -> list[DoseEvent]:
+    """이중 복용 의심을 보호자가 판정하면, 그 사진에서 미리 비워진 칸의 같은 날 남은 복약 건을 닫는다.
+
+    미리 비워진 칸은 그 칸의 복약 시각에 어르신께 물어도 빈 칸 사진만 오고, 판독은 그것을 "정상"으로
+    기록해 버린다 (2026-11-14 시연 리허설에서 확인). 그래서 어르신께 묻지 않고 "보호자가 확인함"
+    (acknowledged)으로 닫는다. "드심"으로 적지 않는다: 그 시각에 드신 것이 아니기 때문이다.
+    판정 종류와 상관없이 닫는다 (안 드셨다고 판정해도 칸은 이미 비어 있다).
+    아직 사진을 받지 않은 건(scheduled, asked)만 닫는다. 다른 날의 건은 건드리지 않는다.
+    """
+    reading = db.get(Reading, h.reading_id) if h.reading_id else None
+    if reading is None:
+        return []
+    emptied = {
+        c["cell_id"]
+        for c in reading.cells
+        if c["cell_id"] != reading.target_cell_id and c.get("attention") == "unexpected_empty"
+    }
+    if not emptied:
+        return []
+    rows = db.execute(
+        select(DoseEvent, ScheduleSlot.cell_id)
+        .join(ScheduleSlot, ScheduleSlot.id == DoseEvent.slot_id)
+        .where(
+            DoseEvent.family_id == event.family_id,
+            DoseEvent.date == event.date,
+            DoseEvent.id != event.id,
+            DoseEvent.state.in_(("scheduled", "asked")),
+        )
+        .with_for_update(of=DoseEvent)
+    ).all()
+    closed = []
+    for other, cell_id in rows:
+        if cell_id in emptied:
+            _resolve(other, "acknowledged", device_id, now)
+            closed.append(other)
+    return closed
 
 
 def _refill_answer(
