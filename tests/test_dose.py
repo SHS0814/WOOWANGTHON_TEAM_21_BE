@@ -142,7 +142,7 @@ def test_double_suspected_hands_off(client, fam, reader, push):
     assert res.json()["result"] == "guardian_notified"
     hs = open_handoffs(client, fam)
     assert [h["reason"] for h in hs] == ["double_suspected"]
-    assert hs[0]["allowed_verdicts"] == ["taken", "not_taken", "acknowledged"]
+    assert hs[0]["allowed_verdicts"] == ["taken", "acknowledged", "not_taken"]
     assert [m.data["reason"] for m in push.sent] == ["double_suspected"]
     detail = client.get(f"/api/v1/handoffs/{hs[0]['id']}", headers=fam.g).json()
     cells = {c["cell_id"]: c for c in detail["readings"][0]["cells"]}
@@ -170,6 +170,7 @@ def test_unclear_retake_then_handoff(client, fam, reader, push):
     hs = open_handoffs(client, fam)
     assert [h["reason"] for h in hs] == ["unclear"] and hs[0]["allowed_verdicts"] == [
         "taken",
+        "acknowledged",
         "not_taken",
     ]
     detail = client.get(f"/api/v1/handoffs/{hs[0]['id']}", headers=fam.g).json()
@@ -273,7 +274,7 @@ def test_verdict_not_allowed(client, fam, reader):
     upload(client, fam, eid)
     h = open_handoffs(client, fam)[0]
     res = client.post(
-        f"/api/v1/handoffs/{h['id']}/verdict", json={"verdict": "acknowledged"}, headers=fam.g
+        f"/api/v1/handoffs/{h['id']}/verdict", json={"verdict": "refilled"}, headers=fam.g
     )
     assert res.status_code == 422 and res.json()["error"]["code"] == "verdict_not_allowed"
 
@@ -336,7 +337,7 @@ def test_already_used_cell_empty_is_never_recorded_refill_overdue(client, fam, r
     assert res["dose_event"]["outcome"] is None and res["dose_event"]["elder_status"] == "no_record"
     hs = open_handoffs(client, fam)
     assert [h["reason"] for h in hs] == ["refill_overdue"]
-    assert hs[0]["allowed_verdicts"] == ["taken", "not_taken", "acknowledged"]
+    assert hs[0]["allowed_verdicts"] == ["taken", "acknowledged", "not_taken"]
     assert push.sent[-1].data["reason"] == "refill_overdue"
 
 

@@ -105,7 +105,8 @@ def post_verdict(
         _refill_answer(db, request, auth, h, event, now)
     elif h.binds_event:
         _resolve(event, body.verdict, auth.device.id, now)
-    if h.reason == "double_suspected":
+    # 중복 복용으로 판정했을 때만 미리 비워진 칸의 건을 닫는다. 정상 복용(AI가 잘못 봄)·미복용이면 다음 건은 그대로 묻는다
+    if h.reason == "double_suspected" and body.verdict == "acknowledged":
         closed = _close_pre_emptied(db, h, event, auth.device.id, now)
         if closed:
             # 어르신 폰이 닫힌 건의 알람을 지우도록 깨운다 (화면에는 아무것도 보이지 않는다)
@@ -132,12 +133,11 @@ def _resolve(event: DoseEvent, outcome: str, device_id: str, now) -> None:
 def _close_pre_emptied(
     db: Session, h: Handoff, event: DoseEvent, device_id: str, now
 ) -> list[DoseEvent]:
-    """이중 복용 의심을 보호자가 판정하면, 그 사진에서 미리 비워진 칸의 같은 날 남은 복약 건을 닫는다.
+    """이중 복용 의심을 보호자가 "중복 복용"으로 판정하면, 그 사진에서 미리 비워진 칸의 같은 날 남은 복약 건을 닫는다.
 
     미리 비워진 칸은 그 칸의 복약 시각에 어르신께 물어도 빈 칸 사진만 오고, 판독은 그것을 "정상"으로
-    기록해 버린다 (2026-11-14 시연 리허설에서 확인). 그래서 어르신께 묻지 않고 "보호자가 확인함"
-    (acknowledged)으로 닫는다. "드심"으로 적지 않는다: 그 시각에 드신 것이 아니기 때문이다.
-    판정 종류와 상관없이 닫는다 (안 드셨다고 판정해도 칸은 이미 비어 있다).
+    기록해 버린다 (2026-11-14 시연 리허설에서 확인). 그래서 어르신께 묻지 않고 acknowledged(중복 복용)
+    로 닫는다. 화면은 인계가 없는 이 건을 "중복 복용으로 건너뜀"으로 보여 준다. "정상 복용"으로 적지 않는다.
     아직 사진을 받지 않은 건(scheduled, asked)만 닫는다. 다른 날의 건은 건드리지 않는다.
     """
     reading = db.get(Reading, h.reading_id) if h.reading_id else None
