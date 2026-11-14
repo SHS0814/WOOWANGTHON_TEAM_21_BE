@@ -69,7 +69,9 @@ class Settings(BaseSettings):
     # FCM 서비스 계정 키 JSON 경로 (R-039). 저장소 밖에 두고 커밋하지 않는다
     fcm_service_account_file: str | None = None
     # 앱이 만든 보호자 알림 채널 (FE src/notify/channels.ts 의 GUARDIAN_CHANNEL)
-    fcm_android_channel_id: str = "guardian"
+    fcm_android_channel_id: str = (
+        "guardian-quiet"  # 앱의 소리 없는 보호자 채널 (src/notify/channels.ts)
+    )
     expo_push_enabled: bool = False
     expo_access_token: str | None = None
 
